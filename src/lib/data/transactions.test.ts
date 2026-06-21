@@ -4,7 +4,7 @@
 //
 // NOTE: create/update/delete mutate /data/database.json. This script snapshots the
 // file before running and restores it in a finally block, so the committed seed data
-// is left untouched (still exactly 10 transactions) regardless of pass/fail.
+// is left untouched (still exactly 11 transactions) regardless of pass/fail.
 
 import { promises as fs } from "node:fs";
 import path from "node:path";
@@ -36,16 +36,16 @@ async function main(): Promise<void> {
   const backup = await fs.readFile(DB_PATH, "utf-8");
 
   try {
-    // 1. getTransactions returns the 10 seed transactions
+    // 1. getTransactions returns the 11 seed transactions
     const all = await getTransactions();
-    check("getTransactions() returns 10 transactions", all.length === 10);
+    check("getTransactions() returns 11 transactions", all.length === 11);
 
-    // 2. getTransactionsByCardId splits correctly (5 each in seed data)
+    // 2. getTransactionsByCardId splits correctly (5 Millennia, 6 Atlas in seed data)
     const millennia = await getTransactionsByCardId("card-millennia-001");
     check("getTransactionsByCardId(millennia) returns 5", millennia.length === 5);
 
     const atlas = await getTransactionsByCardId("card-atlas-001");
-    check("getTransactionsByCardId(atlas) returns 5", atlas.length === 5);
+    check("getTransactionsByCardId(atlas) returns 6", atlas.length === 6);
 
     const none = await getTransactionsByCardId("does-not-exist");
     check("getTransactionsByCardId(unknown) returns []", none.length === 0);
@@ -74,7 +74,7 @@ async function main(): Promise<void> {
     );
 
     const afterCreate = await getTransactions();
-    check("createTransaction() persists (now 11)", afterCreate.length === 11);
+    check("createTransaction() persists (now 12)", afterCreate.length === 12);
 
     // 4. updateTransaction modifies a field correctly and persists
     const updated = await updateTransaction(created.id, { amount: 999 });
@@ -92,7 +92,7 @@ async function main(): Promise<void> {
     check("deleteTransaction(valid id) returns true", deleted === true);
 
     const afterDelete = await getTransactions();
-    check("deleteTransaction() persists (back to 10)", afterDelete.length === 10);
+    check("deleteTransaction() persists (back to 11)", afterDelete.length === 11);
 
     const deleteMissing = await deleteTransaction("does-not-exist");
     check("deleteTransaction(invalid id) returns false", deleteMissing === false);

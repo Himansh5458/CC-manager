@@ -39,7 +39,7 @@ scrollable content column that holds each page's own `<main>`.
   across pages; keep money/date math out of it (that's `src/lib/calculations/`).
 
 ### Placeholder pages — INTENTIONAL STUBS, not forgotten work
-`/payments`, `/milestones`, and `/assistant` exist in the sidebar
+`/milestones` and `/assistant` exist in the sidebar
 but their feature work is a future phase. Each `page.tsx` is a **deliberate
 throwaway stub** that renders the shared `_components/ComingSoon.tsx` ("Coming
 soon" card) so navigating to them returns 200 and looks consistent instead of
@@ -90,6 +90,26 @@ constant **inside the client component** instead (a *type-only* import from the
 `"use server"` file is fine — types are erased at compile time). As defence-in-depth,
 read it null-safe in the component (`const err = state?.errors ?? {}`).
 
+**Create-or-delete-only resources (no update) — the Payments variant.** Some
+tabs are append-or-delete by schema design (Payments, Exclusions): the data layer
+has `create*` + `delete*` but **no `update*`** (see `src/lib/data/payments.ts`).
+Their page follows the Forms pattern for the create half, plus a **per-row delete
+control** instead of any edit affordance:
+- The delete is its own **bare `async (formData) => void` Server Action** in
+  `actions.ts` — NOT wired through `useActionState` (there's no field-level error
+  UI to show; a delete either happens or is a harmless no-op). It re-checks the id
+  against the *live* DB so a stale/duplicate submit is ignored, then
+  `revalidatePath`s. A `"use server"` file mixing a `useActionState` action and a
+  bare void action is fine — both are async functions, the only thing the RSC
+  boundary allows it to export.
+- Because deletion is irreversible, the row's button is a small Client Component
+  (`_components/DeletePaymentButton.tsx`) using a **two-click confirm** pattern
+  (first click swaps in explicit Confirm / Cancel buttons; only Confirm submits the
+  Server Action). A native `confirm()` is deliberately avoided — blocking a
+  Server-Action form submit on a native dialog is fiddly/inconsistent across
+  browsers. The confirm submit button reads `useFormStatus().pending` (so it must
+  be a descendant of the `<form>`) to disable itself while the delete is in flight.
+
 **Input styling on the dark theme:** form inputs use a darker fill than their
 surface card (`bg-background-dark` inputs inside a `bg-surface-dark` card) plus a
 `border-white/10` border and a `focus:ring-brand-yellow` ring, so they read
@@ -127,6 +147,18 @@ may belong to a now-inactive card), while the form dropdown offers **active**
 cards only. Corrected categories render `original → override (corrected)`. The
 first screen built on the **Forms pattern** (see above).
 
+### `/payments` — `src/app/payments/page.tsx`
+Log a payment + review full history. Server Component, `async`,
+`dynamic = "force-dynamic"`. Renders the `LogPaymentForm` (Client) above a
+newest-first history table; each row carries a `DeletePaymentButton` (Client,
+two-click confirm). The form posts to `createPaymentAction`; rows delete via
+`deletePaymentAction` (both in `actions.ts`). Payments are **create-or-delete
+only — no edit** (schema design — see the create-or-delete-only note in the Forms
+pattern above). `source` is a **free-text** field (UPI, Bank Transfer, …), not a
+constrained dropdown, because payment sources vary. Card names in the table are
+looked up across **all** cards (a payment may belong to a now-inactive card),
+while the form dropdown offers **active** cards only — same split as Transactions.
+
 ### `/` — `src/app/page.tsx` (Dashboard, home screen)
 Server Component, `async`, `dynamic = "force-dynamic"`. The densest page in the app:
 six stacked sections, each rendered from the **shared `calculations/` modules** (no
@@ -162,8 +194,9 @@ system). Shared `_lib/format.ts` view helpers and `calculations/dueDate.ts`
 (+ unit test) extracted so both pages share due-date and colour logic. Persistent
 left-sidebar nav shell added (`layout.tsx` + `_components/Sidebar.tsx`).
 `/transactions` is now a real page (log form + history) and established the Forms
-pattern; the three remaining routes (`/payments`, `/milestones`, `/assistant`) are
-still intentional `ComingSoon` stubs.
+pattern; `/payments` is now a real page too (log form + history with per-row
+delete — the first create-or-delete-only screen). The two remaining routes
+(`/milestones`, `/assistant`) are still intentional `ComingSoon` stubs.
 
 ## Update this file
 Whenever a new conventions or component pattern is established (e.g., "all forms use X library", "all tables use Y component"), add it here so future sessions follow the same pattern.
