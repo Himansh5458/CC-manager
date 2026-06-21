@@ -264,6 +264,26 @@ clamps *back* to that month's last day (e.g. day 31 → Feb 28/29).
 | `mostRecentStatementDate` | `(statementDay: number, today: Date) => Date` | The most recent calendar date matching `statementDay` that is ≤ `today` (UTC midnight), clamping the day back to the month's last day when it doesn't exist. Exported for testability/reuse. |
 | `getEffectiveUtilization` | `(card: Card, computed: { outstandingBalance: number; utilizationPct: number }) => number` | Returns `card.manual_override_utilization_pct` when it is non-null, otherwise `computed.utilizationPct`. Encodes the "manual override always wins" principle from `/CLAUDE.md` — including an override of `0`. |
 
+### `src/lib/calculations/milestoneProgress.ts` — milestone tier progress & achievement
+
+Recomputes a milestone's tiers (progress amount, achieved flag, achieved date)
+for its current earning window. Pure — the caller supplies the rows and persists
+the returned tiers via `data/milestoneTiers.updateMilestoneTier` (same
+caller-persists contract as `recomputeCardBalance`). Same UTC date policy as
+`milestoneCycles.ts`.
+
+| Function | Signature | Behaviour |
+|----------|-----------|-----------|
+| `recomputeMilestoneProgress` | `(milestone: Milestone, tiers: MilestoneTier[], transactions: Transaction[], today?: Date) => MilestoneTier[]` | Returns **new** tier objects (input never mutated) with refreshed `current_progress_amount`, `achieved`, `achieved_date`. See rules below. `today` defaults to the current date; tests inject a fixed value. |
+
+Rules:
+- **Earning window** — the milestone's cycle from `calculateCurrentCycle`, shifted by `earning_window_offset`: `0` = current cycle; `-1` = previous cycle; `-n` = `n` cycles back. The look-back is computed by recomputing the cycle for *one day before the current cycle's start* (which always falls inside the previous cycle), reusing all of `calculateCurrentCycle`'s anchor / leap-year / short-month handling rather than re-deriving month math. Positive offsets are not in the schema and are treated as `0`. For `cycle_frequency: "custom"`, the look-back cannot move the window (custom cycles echo stored boundaries regardless of `today`).
+- **Shared spend pool** — `current_progress_amount` is the Σ of this card's transactions dated within the window (both boundaries inclusive), and is written to **every** tier of the milestone (all tiers draw from the same pool, per the schema design).
+- **Achieved by `tier_type`** — `"cumulative"`: every tier whose `tier_threshold_amount ≤ progress` is achieved. `"highest_only"`: only the single highest tier whose threshold ≤ progress is achieved; lower crossed tiers are not.
+- **Manual override wins** — when `manual_override_achieved` is non-null, it overrides the computed `achieved` for that tier only (mirrors `getEffectiveUtilization`).
+- **`achieved_date` consistency** — set to `today` (UTC `YYYY-MM-DD`) the first time a tier becomes achieved; preserved (not overwritten) on later recomputes while it stays achieved; cleared to `null` whenever the tier is not achieved, so a stale date never sits beside `achieved: false`.
+- **Foreign tiers** — tiers whose `milestone_id` does not match `milestone.id` are passed through as unchanged copies and ignored for the `highest_only` computation (defensive against an over-supplying caller, mirroring `recomputeCardBalance` filtering to its card).
+
 ### Status
 
 **All 13 tabs now have complete data-access layers** documented above (cards,
@@ -272,7 +292,8 @@ milestoneTiers, feesAndCharges, exclusions, monthlySnapshots, familyCapTracker,
 cardTermsHistory, categories). This finishes the core data-layer portion of Phase 1.
 
 The `calculations/` layer is growing alongside: `milestoneCycles` (cycle dates),
-`fyDates` (financial-year math), and `cardBalance` (current-cycle balance &
-utilization) are done, each with a unit test. Still pending in later phases: reward
-/cashback math and the expected-cashback formula. The JSON→Sheets backend swap will
-touch only `fileStore.ts`.
+`fyDates` (financial-year math), `cardBalance` (current-cycle balance &
+utilization), and `milestoneProgress` (tier progress & achievement) are done, each
+with a unit test. Still pending in later phases: reward/cashback math and the
+expected-cashback formula. The JSON→Sheets backend swap will touch only
+`fileStore.ts`.
