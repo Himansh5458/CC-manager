@@ -230,6 +230,40 @@ Cycle rules:
 - **`cycle_anchor: "anniversary"`** — cycles step from `anchor_reference_date` (the card's issuance date) in 1/3/12-month increments for monthly/quarterly/annual. The start is the most recent `anchor + k*step` on or before `today`; the end is one day before `anchor + (k+1)*step`. `k*step` is always measured from the original anchor, so a Feb-29 anchor recovers Feb 29 in future leap years. Throws if `anchor_reference_date` is `null`.
 - **Leap-year / short-month policy** — an anchor day that doesn't exist in the target month clamps *back* to that month's last day (Feb 29 → Feb 28 in non-leap years; Jan 31 → Feb 28/29). Consequence: a cycle starting on a leap day (e.g. 2028-02-29) can end on Feb 27 of a non-leap year, because the next anniversary clamps to Feb 28 and the end is one day before it.
 
+### `src/lib/calculations/fyDates.ts` — Indian financial-year dates
+
+The Indian financial year (FY) runs **April 1 → March 31** and is named "YYYY-YY"
+by its start year and the last two digits of its end year (e.g. "2026-27"). A date
+in Jan–Mar belongs to the FY that began the *previous* April. Same UTC date policy
+as `milestoneCycles.ts` (ISO `YYYY-MM-DD` parsed as UTC midnight; `Date` inputs
+read via UTC fields), so FY membership never shifts with the server timezone.
+
+| Function | Signature | Behaviour |
+|----------|-----------|-----------|
+| `getFinancialYear` | `(date: Date) => string` | The FY containing `date`, e.g. `2026-06-21` → `"2026-27"`, `2026-02-15` → `"2025-26"`. |
+| `getFinancialYearBounds` | `(fyString: string) => { start: string; end: string }` | Inclusive ISO bounds, e.g. `"2026-27"` → `{ start: "2026-04-01", end: "2027-03-31" }`. Only the leading start-year is parsed; the end year is derived as start + 1. Throws on an unparseable start year. |
+| `isDateInFinancialYear` | `(date: Date, fyString: string) => boolean` | True if `date` is within `fyString`'s bounds, inclusive of both Apr 1 and Mar 31. |
+
+`FamilyCapTracker.financial_year` uses exactly this "YYYY-YY" format.
+
+### `src/lib/calculations/cardBalance.ts` — current-cycle balance & utilization
+
+Derives a card's outstanding balance and utilization for its **current statement
+cycle** from supplied transactions and payments (pure — the caller fetches the
+rows via the data layer). Same UTC date policy as `milestoneCycles.ts`.
+
+The current cycle is everything dated on or after the **most recent occurrence of
+the card's `statement_date` (a bare day-of-month) that is on or before today** —
+the same "most recent anchor ≤ today" shape as the anniversary milestone cycle,
+with a fixed one-month step. A statement day that doesn't exist in a short month
+clamps *back* to that month's last day (e.g. day 31 → Feb 28/29).
+
+| Function | Signature | Behaviour |
+|----------|-----------|-----------|
+| `recomputeCardBalance` | `(card: Card, transactions: Transaction[], payments: Payment[], today?: Date) => { outstandingBalance: number; utilizationPct: number }` | Filters `transactions`/`payments` to this card and to dates ≥ the current cycle start. `outstandingBalance` = Σ(txn amounts) − Σ(payment amounts), rounded to 2 dp. `utilizationPct` = outstanding / `credit_limit` × 100, rounded to 1 dp (0 when `credit_limit` is 0, to avoid NaN/∞). `today` defaults to the current date; tests inject a fixed value. |
+| `mostRecentStatementDate` | `(statementDay: number, today: Date) => Date` | The most recent calendar date matching `statementDay` that is ≤ `today` (UTC midnight), clamping the day back to the month's last day when it doesn't exist. Exported for testability/reuse. |
+| `getEffectiveUtilization` | `(card: Card, computed: { outstandingBalance: number; utilizationPct: number }) => number` | Returns `card.manual_override_utilization_pct` when it is non-null, otherwise `computed.utilizationPct`. Encodes the "manual override always wins" principle from `/CLAUDE.md` — including an override of `0`. |
+
 ### Status
 
 **All 13 tabs now have complete data-access layers** documented above (cards,
@@ -237,6 +271,8 @@ rewardRules, transactions, payments, recurringTransactions, milestones,
 milestoneTiers, feesAndCharges, exclusions, monthlySnapshots, familyCapTracker,
 cardTermsHistory, categories). This finishes the core data-layer portion of Phase 1.
 
-The next pending data-layer work is in later phases: the `calculations/` modules
-(reward/FY math) build on top of these CRUD functions, and the JSON→Sheets backend
-swap will touch only `fileStore.ts`.
+The `calculations/` layer is growing alongside: `milestoneCycles` (cycle dates),
+`fyDates` (financial-year math), and `cardBalance` (current-cycle balance &
+utilization) are done, each with a unit test. Still pending in later phases: reward
+/cashback math and the expected-cashback formula. The JSON→Sheets backend swap will
+touch only `fileStore.ts`.
