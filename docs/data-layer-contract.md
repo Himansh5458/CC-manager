@@ -66,6 +66,18 @@ All functions go through `readDatabase`/`writeDatabase`; none touch the file pat
 | `createCard` | `(card: Omit<Card, 'id'>) => Promise<Card>` | Generates an id via `crypto.randomUUID()`, persists, returns the created card. |
 | `updateCard` | `(id: string, updates: Partial<Card>) => Promise<Card \| null>` | Applies a partial update (id is immutable), persists, returns the updated card; `null` if the id is not found. |
 
+### `src/lib/data/rewardRules.ts` — RewardRule tab
+
+All functions go through `readDatabase`/`writeDatabase`; none touch the file path.
+
+| Function | Signature | Behaviour |
+|----------|-----------|-----------|
+| `getRewardRules` | `() => Promise<RewardRule[]>` | Returns all reward rules. |
+| `getRewardRulesByCardId` | `(cardId: string) => Promise<RewardRule[]>` | Returns reward rules for that card; `[]` if none. |
+| `createRewardRule` | `(r: Omit<RewardRule, 'id'>) => Promise<RewardRule>` | Generates an id via `crypto.randomUUID()`, persists, returns the created row. |
+| `updateRewardRule` | `(id: string, updates: Partial<RewardRule>) => Promise<RewardRule \| null>` | Applies a partial update (id is immutable), persists, returns the updated row; `null` if the id is not found. |
+| `deleteRewardRule` | `(id: string) => Promise<boolean>` | Removes the row, persists; returns `true` if deleted, `false` if the id is not found. |
+
 ### `src/lib/data/transactions.ts` — Transaction tab
 
 All functions go through `readDatabase`/`writeDatabase`; none touch the file path.
@@ -125,6 +137,76 @@ All functions go through `readDatabase`/`writeDatabase`; none touch the file pat
 | `createMilestoneTier` | `(t: Omit<MilestoneTier, 'id'>) => Promise<MilestoneTier>` | Generates an id via `crypto.randomUUID()`, persists, returns the created tier. |
 | `updateMilestoneTier` | `(id: string, updates: Partial<MilestoneTier>) => Promise<MilestoneTier \| null>` | Applies a partial update (id is immutable), persists, returns the updated tier; `null` if the id is not found. |
 
+### `src/lib/data/feesAndCharges.ts` — FeeAndCharge tab
+
+All functions go through `readDatabase`/`writeDatabase`; none touch the file path.
+
+| Function | Signature | Behaviour |
+|----------|-----------|-----------|
+| `getFeesAndCharges` | `() => Promise<FeeAndCharge[]>` | Returns all fees and charges. |
+| `getFeesByCardId` | `(cardId: string) => Promise<FeeAndCharge[]>` | Returns fees/charges for that card; `[]` if none. |
+| `createFeeAndCharge` | `(f: Omit<FeeAndCharge, 'id'>) => Promise<FeeAndCharge>` | Generates an id via `crypto.randomUUID()`, persists, returns the created row. |
+| `updateFeeAndCharge` | `(id: string, updates: Partial<FeeAndCharge>) => Promise<FeeAndCharge \| null>` | Applies a partial update (id is immutable), persists, returns the updated row; `null` if the id is not found. |
+| `deleteFeeAndCharge` | `(id: string) => Promise<boolean>` | Removes the row, persists; returns `true` if deleted, `false` if the id is not found. |
+
+### `src/lib/data/exclusions.ts` — Exclusion tab
+
+All functions go through `readDatabase`/`writeDatabase`; none touch the file path.
+
+| Function | Signature | Behaviour |
+|----------|-----------|-----------|
+| `getExclusions` | `() => Promise<Exclusion[]>` | Returns all exclusions. |
+| `getExclusionsByCardId` | `(cardId: string) => Promise<Exclusion[]>` | Returns exclusions for that card; `[]` if none. |
+| `createExclusion` | `(e: Omit<Exclusion, 'id'>) => Promise<Exclusion>` | Generates an id via `crypto.randomUUID()`, persists, returns the created row. |
+| `deleteExclusion` | `(id: string) => Promise<boolean>` | Removes the row, persists; returns `true` if deleted, `false` if the id is not found. No update function by design — an exclusion is added or removed. |
+
+### `src/lib/data/monthlySnapshots.ts` — MonthlySnapshot tab
+
+All functions go through `readDatabase`/`writeDatabase`; none touch the file path.
+
+| Function | Signature | Behaviour |
+|----------|-----------|-----------|
+| `getMonthlySnapshots` | `() => Promise<MonthlySnapshot[]>` | Returns all snapshots. |
+| `getSnapshotsByCardId` | `(cardId: string) => Promise<MonthlySnapshot[]>` | Returns snapshots for that card; `[]` if none. |
+| `getLatestSnapshotForCard` | `(cardId: string) => Promise<MonthlySnapshot \| null>` | Returns the card's snapshot with the most recent `cycle_end_date` (ISO strings compared lexicographically); `null` if the card has none. |
+| `createMonthlySnapshot` | `(s: Omit<MonthlySnapshot, 'id'>) => Promise<MonthlySnapshot>` | Generates an id via `crypto.randomUUID()`, persists, returns the created row. |
+| `updateMonthlySnapshot` | `(id: string, updates: Partial<MonthlySnapshot>) => Promise<MonthlySnapshot \| null>` | Applies a partial update (id is immutable), persists, returns the updated row; `null` if the id is not found. |
+
+### `src/lib/data/familyCapTracker.ts` — FamilyCapTracker tab
+
+All functions go through `readDatabase`/`writeDatabase`; none touch the file path.
+
+**Structurally different from every other tab:** `FamilyCapTracker` has **no single `id` field**. Its primary key is the **composite of `family_key` + `financial_year`**. There is therefore no `randomUUID()` and no create/update pair — a single `upsert` keys on that pair.
+
+| Function | Signature | Behaviour |
+|----------|-----------|-----------|
+| `getFamilyCapTrackers` | `() => Promise<FamilyCapTracker[]>` | Returns all rows. |
+| `getFamilyCapTracker` | `(familyKey: string, financialYear: string) => Promise<FamilyCapTracker \| null>` | Returns the single row matching the composite key, or `null`. |
+| `upsertFamilyCapTracker` | `(entry: FamilyCapTracker) => Promise<FamilyCapTracker>` | If a row with the same `family_key` + `financial_year` exists, replaces it in place (no duplicate); otherwise appends. Persists and returns the stored entry. |
+
+### `src/lib/data/cardTermsHistory.ts` — CardTermsHistory tab
+
+All functions go through `readDatabase`/`writeDatabase`; none touch the file path.
+
+| Function | Signature | Behaviour |
+|----------|-----------|-----------|
+| `getCardTermsHistory` | `() => Promise<CardTermsHistoryEntry[]>` | Returns all entries. |
+| `getTermsHistoryByCardId` | `(cardId: string) => Promise<CardTermsHistoryEntry[]>` | Returns entries for that card; `[]` if none. |
+| `getPendingTermsHistory` | `() => Promise<CardTermsHistoryEntry[]>` | Returns only entries where `confirmed === false`. |
+| `createTermsHistoryEntry` | `(e: Omit<CardTermsHistoryEntry, 'id'>) => Promise<CardTermsHistoryEntry>` | Generates an id via `crypto.randomUUID()`, persists, returns the created row. |
+| `confirmTermsHistoryEntry` | `(id: string) => Promise<CardTermsHistoryEntry \| null>` | Sets `confirmed = true` (id immutable), persists, returns the updated row; `null` if the id is not found. |
+
+### `src/lib/data/categories.ts` — Category tab
+
+All functions go through `readDatabase`/`writeDatabase`; none touch the file path.
+
+`Category` has **no `id` field** — its identity is its `name`. `addCategory` is therefore idempotent.
+
+| Function | Signature | Behaviour |
+|----------|-----------|-----------|
+| `getCategories` | `() => Promise<Category[]>` | Returns all categories. |
+| `addCategory` | `(name: string) => Promise<Category>` | If a category with the same `name` already exists (case-insensitive), returns the existing row without adding a duplicate; otherwise persists and returns the new category. |
+
 ## Calculations (business logic)
 
 Business logic that derives values from the data lives in `src/lib/calculations/`,
@@ -148,8 +230,13 @@ Cycle rules:
 - **`cycle_anchor: "anniversary"`** — cycles step from `anchor_reference_date` (the card's issuance date) in 1/3/12-month increments for monthly/quarterly/annual. The start is the most recent `anchor + k*step` on or before `today`; the end is one day before `anchor + (k+1)*step`. `k*step` is always measured from the original anchor, so a Feb-29 anchor recovers Feb 29 in future leap years. Throws if `anchor_reference_date` is `null`.
 - **Leap-year / short-month policy** — an anchor day that doesn't exist in the target month clamps *back* to that month's last day (Feb 29 → Feb 28 in non-leap years; Jan 31 → Feb 28/29). Consequence: a cycle starting on a leap day (e.g. 2028-02-29) can end on Feb 27 of a non-leap year, because the next anniversary clamps to Feb 28 and the end is one day before it.
 
-### Pending (later phases)
+### Status
 
-Equivalent data-access modules for the remaining 7 tabs (rewardRules,
-feesAndCharges, exclusions, monthlySnapshots, familyCapTracker, cardTermsHistory,
-categories).
+**All 13 tabs now have complete data-access layers** documented above (cards,
+rewardRules, transactions, payments, recurringTransactions, milestones,
+milestoneTiers, feesAndCharges, exclusions, monthlySnapshots, familyCapTracker,
+cardTermsHistory, categories). This finishes the core data-layer portion of Phase 1.
+
+The next pending data-layer work is in later phases: the `calculations/` modules
+(reward/FY math) build on top of these CRUD functions, and the JSON→Sheets backend
+swap will touch only `fileStore.ts`.
