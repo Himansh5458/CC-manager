@@ -11,8 +11,60 @@ Everything under `src/app/` — pages, layouts, UI components, client-side state
 5. **Every form/data-entry screen needs a review-before-save step** where extraction/computation could be wrong (statement parsing, benefit-dump extraction). This is a hard product requirement, not optional polish — see /DECISIONS.md.
 6. **Pages reading live data must opt out of static prerendering.** Any page that reads the database or depends on the current date/time must declare `export const dynamic = "force-dynamic"` so it renders fresh on every request instead of being prerendered into a stale build-time snapshot. This is the default for this app — nearly every page is a live financial dashboard ("Due in X days", utilization, balances). Only omit it when a page renders genuinely static content, and document that exception inline.
 
+## Shared view helpers — `src/app/_lib/`
+Presentational helpers used by more than one page live in `src/app/_lib/` (an
+underscore-prefixed **private folder**, excluded from Next.js routing). View
+concerns only — never put money/date *math* here; that belongs in
+`src/lib/calculations/`.
+- `_lib/format.ts` — `formatINR` (Intl en-IN, no paise), `ordinal`, and the
+  design-system colour-banding utilities: `utilizationColorClass` /
+  `utilizationBarClass` (green <30, amber 30–70, red >70), `dueColorClass`
+  (red ≤3d, amber ≤10d, default beyond), `capColorClass` / `capBarClass`
+  (green normal, amber ≥70%, red ≥90% — a higher band than utilization because
+  the ₹8L family cap is a hard ceiling). Both the Dashboard and Cards page import
+  these so their colour coding can never drift.
+
+## Pages
+
+### `/cards` — `src/app/cards/page.tsx`
+Read-only list of active cards (credit limit, effective utilization, payment due).
+Server Component, `dynamic = "force-dynamic"`. Imports `daysUntilDue` from
+`calculations/dueDate` and the colour/format helpers from `_lib/format` (no inline
+copies — they were extracted when the Dashboard needed the same logic).
+
+### `/` — `src/app/page.tsx` (Dashboard, home screen)
+Server Component, `async`, `dynamic = "force-dynamic"`. The densest page in the app:
+six stacked sections, each rendered from the **shared `calculations/` modules** (no
+inline business logic — src/lib rule 2) and the `_lib/format` helpers. Card balances
+are computed **once** per card (`recomputeCardBalance`) and reused across sections.
+Section structure and data dependencies:
+1. **Payment due dates** — per active card: outstanding (`recomputeCardBalance`) +
+   `daysUntilDue` (calculations/dueDate). Sorted soonest-first; a passed deadline
+   (null) sorts last and renders "No upcoming deadline". Colour via `dueColorClass`.
+   Data: cards, transactions, payments.
+2. **Utilization** — `getEffectiveUtilization` per card (override wins), banded with
+   `utilizationColorClass`/`Bar`. Data: cards (+ the reused balances).
+3. **This month's spend** — sum of each card's transactions within **its own** open
+   statement cycle (`mostRecentStatementDate`, per-card boundary), summed across
+   cards, plus a category breakdown sorted descending. Caption states explicitly
+   that this is per-cycle, **not** a calendar-month figure. Data: cards, transactions.
+4. **Insights** — `detectSpendAnomalies` + `getMilestoneProximityNudges` per active
+   card, flattened into one text list; empty → "Nothing notable right now". Data:
+   cards, transactions, milestones, milestoneTiers.
+5. **Predicted next bill** — `predictNextBill` per card; shows amount + breakdown
+   string. Data: cards, transactions, payments, recurringTransactions.
+6. **Family spend cap** — per distinct `parent_family` of active cards: payments
+   within the current FY (`getFinancialYear`/`getFinancialYearBounds`) for that
+   family's cards, against the ₹8,00,000 cap, with a progress bar. Computed **fresh
+   from raw payments** — the FamilyCapTracker tab is a cache, not a hard dependency,
+   so a missing row never breaks the section; a cached row's
+   `manual_override_total_paid`/`cap_amount` win when present. Data: cards, payments,
+   familyCapTracker.
+
 ## Current state
-Phase 0: no pages built yet beyond Next.js scaffold defaults.
+Phase 3 (in progress): `/cards` list and `/` Dashboard built (dark dashboard design
+system). Shared `_lib/format.ts` view helpers and `calculations/dueDate.ts`
+(+ unit test) extracted so both pages share due-date and colour logic.
 
 ## Update this file
 Whenever a new conventions or component pattern is established (e.g., "all forms use X library", "all tables use Y component"), add it here so future sessions follow the same pattern.

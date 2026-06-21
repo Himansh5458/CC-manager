@@ -7,81 +7,21 @@
 import { getCards } from "@/lib/data/cards";
 import {
   getEffectiveUtilization,
-  mostRecentStatementDate,
   type ComputedBalance,
 } from "@/lib/calculations/cardBalance";
-import type { Card } from "@/lib/types/schema";
+import { daysUntilDue } from "@/lib/calculations/dueDate";
+import {
+  formatINR,
+  ordinal,
+  utilizationColorClass,
+  utilizationBarClass,
+  dueColorClass,
+} from "@/app/_lib/format";
 
 // Render fresh on every request rather than prerendering at build time.
 // "Due in X days" and utilization depend on the actual current date and the
 // live database, so a build-time snapshot would be stale. See src/app/CLAUDE.md.
 export const dynamic = "force-dynamic";
-
-const MS_PER_DAY = 24 * 60 * 60 * 1000;
-
-/** Format a rupee amount with the Indian grouping and no paise. */
-function formatINR(amount: number): string {
-  return new Intl.NumberFormat("en-IN", {
-    style: "currency",
-    currency: "INR",
-    maximumFractionDigits: 0,
-  }).format(amount);
-}
-
-/** Tailwind text-color utility for a utilization band (design-system semantic colors). */
-function utilizationColorClass(pct: number): string {
-  if (pct > 70) return "text-danger";
-  if (pct >= 30) return "text-warning";
-  return "text-success";
-}
-
-/** Matching fill color for the thin utilization track. */
-function utilizationBarClass(pct: number): string {
-  if (pct > 70) return "bg-danger";
-  if (pct >= 30) return "bg-warning";
-  return "bg-success";
-}
-
-/** Urgency text color for days-until-due (same banding pattern as utilization). */
-function dueColorClass(days: number): string {
-  if (days <= 3) return "text-danger";
-  if (days <= 10) return "text-warning";
-  return "text-text-primary-dark";
-}
-
-/**
- * Days until the upcoming payment deadline, computed simply: the most recent
- * statement date (≤ today) plus payment_deadline_days. Returns null when that
- * deadline has already passed — the caller then falls back to showing the raw
- * statement day rather than overbuilding next-cycle date logic on this list view.
- */
-function daysUntilDue(card: Card, today: Date): number | null {
-  const statement = mostRecentStatementDate(card.statement_date, today);
-  const due = statement.getTime() + card.payment_deadline_days * MS_PER_DAY;
-  const todayMidnight = Date.UTC(
-    today.getUTCFullYear(),
-    today.getUTCMonth(),
-    today.getUTCDate(),
-  );
-  const diffDays = Math.round((due - todayMidnight) / MS_PER_DAY);
-  return diffDays >= 0 ? diffDays : null;
-}
-
-/** Ordinal suffix for a day-of-month (1st, 2nd, 3rd, 5th…). */
-function ordinal(day: number): string {
-  const v = day % 100;
-  if (v >= 11 && v <= 13) return `${day}th`;
-  switch (day % 10) {
-    case 1:
-      return `${day}st`;
-    case 2:
-      return `${day}nd`;
-    case 3:
-      return `${day}rd`;
-    default:
-      return `${day}th`;
-  }
-}
 
 export default async function CardsPage() {
   const today = new Date();
