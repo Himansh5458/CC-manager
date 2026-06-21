@@ -39,7 +39,7 @@ scrollable content column that holds each page's own `<main>`.
   across pages; keep money/date math out of it (that's `src/lib/calculations/`).
 
 ### Placeholder pages — INTENTIONAL STUBS, not forgotten work
-`/transactions`, `/payments`, `/milestones`, and `/assistant` exist in the sidebar
+`/payments`, `/milestones`, and `/assistant` exist in the sidebar
 but their feature work is a future phase. Each `page.tsx` is a **deliberate
 throwaway stub** that renders the shared `_components/ComingSoon.tsx` ("Coming
 soon" card) so navigating to them returns 200 and looks consistent instead of
@@ -47,6 +47,55 @@ soon" card) so navigating to them returns 200 and looks consistent instead of
 real page, replace the stub body wholesale. Because they render genuinely static
 content (no DB/date reads), they intentionally **omit** `dynamic = "force-dynamic"`
 (documented inline in each) — the one sanctioned exception to frontend rule 6.
+(`/transactions` was the first stub promoted to a real page — see Forms pattern.)
+
+## Forms pattern (Server Component page + Client form + Server Action)
+Established by `/transactions` (the app's first data-entry screen). **All future
+forms (Payments, Milestone edits, etc.) follow this three-part split** so they
+stay consistent and keep mutation logic on the server:
+1. **Page is a Server Component** (`async`, `dynamic = "force-dynamic"`). It
+   fetches via the data layer, renders the existing data (the list/table)
+   server-side, and renders the form component. It maps DB rows down to the
+   **minimal non-sensitive shape** the form needs before passing them as props
+   (frontend rule 4 — never hand full `Card` objects, with their encrypted number
+   / contact fields, to a Client Component). Date defaults (`today`) are computed
+   **server-side** and passed as a prop to avoid a hydration mismatch.
+2. **Form is a Client Component** in the page's `_components/` folder. It's a
+   Client Component only for React 19's `useActionState` (pending/error/success
+   state) — it holds no business logic. Inputs are **uncontrolled**
+   (`defaultValue`): on a validation error the form is deliberately *not* reset,
+   so the browser retains the user's typed values; only a successful submit calls
+   `formRef.current.reset()` (which restores `defaultValue`s, including date →
+   today). The action is wired via `<form action={formAction}>`.
+3. **Server Action** lives in the page's `actions.ts` (`"use server"`). It
+   **re-validates every field on the server** (never trust the client) — including
+   checking dropdown values like `card_id`/`category` against the *live* DB lists —
+   then calls the data layer to persist, calls **`revalidatePath("/route")`** so
+   the freshly-rendered list reflects the new row without a manual browser refresh,
+   and returns a `{ ok, message, errors }` state object. `errors` is keyed by field
+   name for inline messages; `message` is the form-level success/summary banner.
+   Forced field values that aren't user input (e.g. `source: "manual"`,
+   `confidence_flag: "high"`) are set here, not in the client.
+
+**GOTCHA — a `"use server"` file may export ONLY async functions.** Do NOT export
+the `useActionState` initial-state constant (or any other plain value) from
+`actions.ts`. A non-function export does **not** survive the RSC boundary into a
+Client Component — it arrives as a server-reference proxy, not the real object, so
+`useActionState`'s initial `state` ends up without a real `.errors` and the form
+crashes on first render (`Cannot read properties of undefined`). **This is invisible
+to `tsc`**: the constant is annotated with a fully-defined type, so TypeScript trusts
+that the access is safe — the unsoundness is injected by the framework's module
+transform at runtime, which the type system cannot see. Define the initial-state
+constant **inside the client component** instead (a *type-only* import from the
+`"use server"` file is fine — types are erased at compile time). As defence-in-depth,
+read it null-safe in the component (`const err = state?.errors ?? {}`).
+
+**Input styling on the dark theme:** form inputs use a darker fill than their
+surface card (`bg-background-dark` inputs inside a `bg-surface-dark` card) plus a
+`border-white/10` border and a `focus:ring-brand-yellow` ring, so they read
+clearly instead of blending into the surface. Date inputs add `[color-scheme:dark]`
+so the native picker chrome matches. Reuse the `fieldClass`/`labelClass`/
+`errorClass` constants in `LogTransactionForm.tsx` as the reference.
 
 ## Shared view helpers — `src/app/_lib/`
 Presentational helpers used by more than one page live in `src/app/_lib/` (an
@@ -68,6 +117,15 @@ Read-only list of active cards (credit limit, effective utilization, payment due
 Server Component, `dynamic = "force-dynamic"`. Imports `daysUntilDue` from
 `calculations/dueDate` and the colour/format helpers from `_lib/format` (no inline
 copies — they were extracted when the Dashboard needed the same logic).
+
+### `/transactions` — `src/app/transactions/page.tsx`
+Log a spend + review full history. Server Component, `async`,
+`dynamic = "force-dynamic"`. Renders the `LogTransactionForm` (Client) above a
+newest-first history table; the form posts to `createTransactionAction`
+(`actions.ts`). Card names in the table are looked up across **all** cards (a txn
+may belong to a now-inactive card), while the form dropdown offers **active**
+cards only. Corrected categories render `original → override (corrected)`. The
+first screen built on the **Forms pattern** (see above).
 
 ### `/` — `src/app/page.tsx` (Dashboard, home screen)
 Server Component, `async`, `dynamic = "force-dynamic"`. The densest page in the app:
@@ -102,9 +160,10 @@ Section structure and data dependencies:
 Phase 3 (in progress): `/cards` list and `/` Dashboard built (dark dashboard design
 system). Shared `_lib/format.ts` view helpers and `calculations/dueDate.ts`
 (+ unit test) extracted so both pages share due-date and colour logic. Persistent
-left-sidebar nav shell added (`layout.tsx` + `_components/Sidebar.tsx`); the four
-not-yet-built routes (`/transactions`, `/payments`, `/milestones`, `/assistant`) are
-intentional `ComingSoon` stubs.
+left-sidebar nav shell added (`layout.tsx` + `_components/Sidebar.tsx`).
+`/transactions` is now a real page (log form + history) and established the Forms
+pattern; the three remaining routes (`/payments`, `/milestones`, `/assistant`) are
+still intentional `ComingSoon` stubs.
 
 ## Update this file
 Whenever a new conventions or component pattern is established (e.g., "all forms use X library", "all tables use Y component"), add it here so future sessions follow the same pattern.
