@@ -102,8 +102,54 @@ All functions go through `readDatabase`/`writeDatabase`; none touch the file pat
 | `createRecurringTransaction` | `(rt: Omit<RecurringTransaction, 'id'>) => Promise<RecurringTransaction>` | Generates an id via `crypto.randomUUID()`, persists, returns the created row. |
 | `updateRecurringTransaction` | `(id: string, updates: Partial<RecurringTransaction>) => Promise<RecurringTransaction \| null>` | Applies a partial update (id is immutable), persists, returns the updated row; `null` if the id is not found. |
 
+### `src/lib/data/milestones.ts` — Milestone tab
+
+All functions go through `readDatabase`/`writeDatabase`; none touch the file path.
+
+| Function | Signature | Behaviour |
+|----------|-----------|-----------|
+| `getMilestones` | `() => Promise<Milestone[]>` | Returns all milestones. |
+| `getMilestonesByCardId` | `(cardId: string) => Promise<Milestone[]>` | Returns milestones for that card; `[]` if none. |
+| `getActiveMilestones` | `() => Promise<Milestone[]>` | Returns only rows where `active === true`. |
+| `createMilestone` | `(m: Omit<Milestone, 'id'>) => Promise<Milestone>` | Generates an id via `crypto.randomUUID()`, persists, returns the created milestone. |
+| `updateMilestone` | `(id: string, updates: Partial<Milestone>) => Promise<Milestone \| null>` | Applies a partial update (id is immutable), persists, returns the updated milestone; `null` if the id is not found. |
+
+### `src/lib/data/milestoneTiers.ts` — MilestoneTier tab
+
+All functions go through `readDatabase`/`writeDatabase`; none touch the file path.
+
+| Function | Signature | Behaviour |
+|----------|-----------|-----------|
+| `getMilestoneTiers` | `() => Promise<MilestoneTier[]>` | Returns all milestone tiers. |
+| `getTiersByMilestoneId` | `(milestoneId: string) => Promise<MilestoneTier[]>` | Returns tiers for that milestone; `[]` if none. |
+| `createMilestoneTier` | `(t: Omit<MilestoneTier, 'id'>) => Promise<MilestoneTier>` | Generates an id via `crypto.randomUUID()`, persists, returns the created tier. |
+| `updateMilestoneTier` | `(id: string, updates: Partial<MilestoneTier>) => Promise<MilestoneTier \| null>` | Applies a partial update (id is immutable), persists, returns the updated tier; `null` if the id is not found. |
+
+## Calculations (business logic)
+
+Business logic that derives values from the data lives in `src/lib/calculations/`,
+**separate from the CRUD layer above**. These functions are pure — they take data
+in and return computed results; they never read or write the database (see
+`src/lib/CLAUDE.md` rule 2). API routes import them rather than recomputing inline.
+
+### `src/lib/calculations/milestoneCycles.ts` — milestone cycle dates
+
+All date math is done in **UTC** (ISO `YYYY-MM-DD` strings parsed as UTC midnight;
+the `today` argument read via its UTC fields), so results never shift with the
+server's local timezone. Output boundaries are inclusive `YYYY-MM-DD` strings.
+
+| Function | Signature | Behaviour |
+|----------|-----------|-----------|
+| `calculateCurrentCycle` | `(milestone: Milestone, today: Date) => { cycleStartDate: string; cycleEndDate: string }` | Computes the milestone's current cycle window for `today`. See rules below. |
+
+Cycle rules:
+- **`cycle_frequency: "custom"`** (either anchor) — returns the milestone's stored `cycle_start_date`/`cycle_end_date` unchanged; custom cycles are author-defined and never auto-computed.
+- **`cycle_anchor: "calendar"`** — `monthly`: 1st→last day of the current month; `quarterly`: standard calendar quarters (Jan–Mar, Apr–Jun, Jul–Sep, Oct–Dec) containing `today`; `annual`: Jan 1→Dec 31 of the current year.
+- **`cycle_anchor: "anniversary"`** — cycles step from `anchor_reference_date` (the card's issuance date) in 1/3/12-month increments for monthly/quarterly/annual. The start is the most recent `anchor + k*step` on or before `today`; the end is one day before `anchor + (k+1)*step`. `k*step` is always measured from the original anchor, so a Feb-29 anchor recovers Feb 29 in future leap years. Throws if `anchor_reference_date` is `null`.
+- **Leap-year / short-month policy** — an anchor day that doesn't exist in the target month clamps *back* to that month's last day (Feb 29 → Feb 28 in non-leap years; Jan 31 → Feb 28/29). Consequence: a cycle starting on a leap day (e.g. 2028-02-29) can end on Feb 27 of a non-leap year, because the next anniversary clamps to Feb 28 and the end is one day before it.
+
 ### Pending (later phases)
 
-Equivalent data-access modules for the remaining 9 tabs (rewardRules, milestones,
-milestoneTiers, feesAndCharges, exclusions, monthlySnapshots, familyCapTracker,
-cardTermsHistory, categories).
+Equivalent data-access modules for the remaining 7 tabs (rewardRules,
+feesAndCharges, exclusions, monthlySnapshots, familyCapTracker, cardTermsHistory,
+categories).

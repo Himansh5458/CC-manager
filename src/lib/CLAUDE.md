@@ -21,6 +21,19 @@ Everything under `src/lib/` — the data-access layer, business logic (reward ca
 - `data/payments.test.ts` — standalone smoke test for payments.ts; snapshots/restores the JSON file.
 - `data/recurringTransactions.ts` — RecurringTransaction tab data access: `getRecurringTransactions`, `getActiveRecurringTransactions` (filters `active===true` AND end_date null-or-future), `createRecurringTransaction`, `updateRecurringTransaction`. Goes through fileStore only.
 - `data/recurringTransactions.test.ts` — standalone smoke test for recurringTransactions.ts; snapshots/restores the JSON file.
+- `data/milestones.ts` — Milestone tab data access: `getMilestones`, `getMilestonesByCardId`, `getActiveMilestones` (filters `active===true`), `createMilestone`, `updateMilestone`. Goes through fileStore only. CRUD only — cycle-date math lives in `calculations/milestoneCycles.ts`, never here.
+- `data/milestones.test.ts` — standalone smoke test for milestones.ts; snapshots/restores the JSON file.
+- `data/milestoneTiers.ts` — MilestoneTier tab data access: `getMilestoneTiers`, `getTiersByMilestoneId`, `createMilestoneTier`, `updateMilestoneTier`. Goes through fileStore only.
+- `data/milestoneTiers.test.ts` — standalone smoke test for milestoneTiers.ts; snapshots/restores the JSON file.
+
+## calculations/ — business logic (NOT data access)
+`src/lib/calculations/` holds pure business logic that derives values from schema
+data: it takes data in and returns computed results, and must **never** read or
+write the database (that is the data/ layer's job — see rule 2). API routes import
+these functions instead of recomputing inline. Every calculation function gets a
+unit test (rule 5); the test runner auto-discovers `*.test.ts` here too.
+- `calculations/milestoneCycles.ts` — `calculateCurrentCycle(milestone, today)` computes a milestone's current cycle window (`{ cycleStartDate, cycleEndDate }`). Handles calendar vs anniversary anchors, monthly/quarterly/annual stepping, `custom` pass-through, and leap-year/short-month clamping. **All date math is UTC** (ISO strings as UTC midnight, `today` read via UTC fields) to avoid timezone drift — documented at the top of the file. Pure: imports only the `Milestone` type, touches no file.
+- `calculations/milestoneCycles.test.ts` — unit test for the cycle math (calendar quarters/annual, anniversary annual matching seed data, leap-year edge cases, custom pass-through). No DB I/O, so no snapshot/restore needed.
 
 ## How `npm test` works
 `npm test` runs `scripts/run-tests.ts`, which **auto-discovers** every `*.test.ts`
@@ -33,7 +46,7 @@ runner; it is found automatically.** Each suite must snapshot/restore
 `data/database.json` itself (see the existing tests for the pattern).
 
 ## Current state
-Phase 1 (in progress): seed `data/database.json` written (2 cards + related rows). fileStore + data-access layers for cards, transactions, payments, and recurringTransactions done and tested (`npm test` auto-discovers and runs all suites). Data-access modules for the other 9 tabs (rewardRules, milestones, milestoneTiers, feesAndCharges, exclusions, monthlySnapshots, familyCapTracker, cardTermsHistory, categories) still pending.
+Phase 1 (in progress): seed `data/database.json` written (2 cards + related rows). fileStore + data-access layers for cards, transactions, payments, recurringTransactions, milestones, and milestoneTiers done and tested, plus the first `calculations/` module (milestoneCycles) with its unit test (`npm test` auto-discovers and runs all suites). Data-access modules for the other 7 tabs (rewardRules, feesAndCharges, exclusions, monthlySnapshots, familyCapTracker, cardTermsHistory, categories) still pending.
 
 ## Update this file
 Whenever a new module is added to src/lib/, document its responsibility and what it must never do, here.
