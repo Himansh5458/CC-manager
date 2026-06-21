@@ -303,6 +303,47 @@ Rules:
 - **Rounding** — `directRewardValue` and `milestoneContributionValue` are each rounded to 2 dp; `totalExpectedValue` is the sum of those rounded parts (so the parts always add up to the displayed total).
 - **`breakdown`** — a short human-readable string for the UI: a `"percentage"` rule reads `"5% points (₹25.00)"` / `"5% cashback (₹25.00)"`, a `"per_100_spend"` rule reads `"5 miles/₹100 (₹25.00)"`, each followed by `" + milestone contribution (₹20.83)"` (or `" + no milestone contribution"`); also reflects exclusions ("no direct reward (category excluded)") and missing rules ("no matching reward rule").
 
+### `src/lib/calculations/insights.ts` — predictive / advisory insights
+
+Forward-looking guidance for the dashboard: next-bill prediction, spend-anomaly
+detection, and milestone proximity nudges. Pure — every row is supplied by the
+caller; nothing is read from or written to the database. **Reuses
+`cardBalance.mostRecentStatementDate`** for all statement-cycle boundaries (it is
+not reimplemented), so the cycle definition can never drift between the two
+modules. Same UTC date policy as `cardBalance.ts`.
+
+A "completed cycle" is a fully-elapsed statement cycle *before* the current open
+one (the open cycle, starting at the most recent statement date ≤ today, is
+excluded so a partial cycle can't understate an average). History honesty: the
+lookback uses only the last 3 completed cycles **for which the card actually has
+transaction history** (a cycle entirely before the card's earliest recorded
+transaction is "no data", not "₹0 spend", and is dropped); a newer empty cycle
+*within* the data span is a genuine ₹0 and is kept.
+
+| Function | Signature | Behaviour |
+|----------|-----------|-----------|
+| `predictNextBill` | `(card: Card, transactions: Transaction[], payments: Payment[], recurringTransactions: RecurringTransaction[], today?: Date) => { predictedAmount: number; breakdown: string }` | `predictedAmount` = Σ(active recurring charges on this card) + average non-recurring spend over the available completed cycles (rounded 2 dp). See rules below. |
+| `detectSpendAnomalies` | `(card: Card, transactions: Transaction[], today?: Date) => Array<{ category: string; currentCycleAmount: number; historicalAverage: number; percentAboveAverage: number }>` | Flags categories whose current-cycle spend is ≥ 30% above their own prior-cycle average. See rules below. |
+| `getMilestoneProximityNudges` | `(milestones: Milestone[], tiers: MilestoneTier[], today?: Date) => Array<{ milestoneId: string; trackName: string; nextTierThreshold: number; amountRemaining: number; rewardDescription: string }>` | Surfaces the next unachieved tier of each active milestone when it is close enough to be worth a nudge. See rules below. |
+
+`predictNextBill` rules:
+- **Active recurring** — a recurring row counts when `card_id` matches AND `active === true` AND `start_date ≤ today ≤ end_date` (ISO strings compared lexicographically; `end_date` null = indefinite, inclusive). Its amounts are summed into the prediction.
+- **Variable baseline** — the average, over the available completed cycles, of this card's transactions that are **not** recurring instances. A transaction is treated as a recurring instance (and excluded) when it matches an active recurring charge on the same card by **category + amount** (the only join available without a foreign key), so a recurring charge also logged as a one-off is never counted twice (once forward, once in the baseline).
+- **History honesty** — averages over however many of the last 3 completed cycles have history (1, 2, or 3), never inventing cycles. With **zero** completed-cycle history only the recurring portion is predicted.
+- **`breakdown`** — e.g. `"₹649 recurring + ₹2,730 avg spend (last 3 cycles)"`; with limited history `"… avg spend (only 1 cycle of history)"`; with no history `"₹649 recurring (no prior cycle spend data yet)"`; with nothing at all `"no recurring charges and no prior cycle spend data yet"`. Rupees are Indian-grouped and rounded to whole rupees (advisory, not accounting). `payments` is part of the signature for symmetry/future use but does not affect the prediction.
+
+`detectSpendAnomalies` rules:
+- **Current cycle** — this card's transactions dated from the current statement-cycle start (`mostRecentStatementDate`) up to `today` inclusive, grouped & summed by category.
+- **Baseline** — each category's average over the available completed cycles (cycles where the category had no spend contribute ₹0 to its average — the correct "usual" baseline).
+- **Flag gate** — a category is returned only when `currentCycleAmount ≥ 1.30 × historicalAverage` (boundary inclusive) **AND** `historicalAverage > 0`. The second guard drops first-time categories (no prior spend is a new purchase, not an anomaly). Recurring charges are not specially excluded — a stable amount sits ~0% above its own average and is filtered out by the 30% gate. `percentAboveAverage` is rounded to 1 dp; the two rupee figures to 2 dp. Returns `[]` when there is no completed-cycle baseline.
+
+`getMilestoneProximityNudges` rules:
+- **Scope** — only `active` milestones; tiers are matched by `milestone_id`.
+- **Next tier** — the lowest-`tier_threshold_amount` tier that is not yet achieved, where achievement respects `manual_override_achieved` (non-null override wins over the computed `achieved` flag, mirroring `getEffectiveUtilization` / `milestoneProgress`).
+- **`amountRemaining`** — `tier_threshold_amount − current_progress_amount`, using the tier's own `current_progress_amount` as-is (assumed already current — this function nudges, it does not recompute progress).
+- **Proximity cutoff (judgment call)** — a tier is returned only when `amountRemaining > 0` AND `amountRemaining ≤ 50% of the tier threshold` (i.e. the user is at least halfway there). A nudge should be reachable: being ₹2.66 lakh short of a ₹3 lakh tier is noise, while past the halfway mark the remaining spend is plausibly closeable within the cycle — exactly when a reminder changes behaviour. The 50% fraction is a single named constant so it can be tuned.
+- **`rewardDescription`** — e.g. `"500 points (worth ₹500)"` (`reward_value` `reward_unit`, value = `reward_value × redemption_value_per_unit`, Indian-grouped). `today` is accepted for signature symmetry but unused (progress is taken as already-current).
+
 ### Status
 
 **All 13 tabs now have complete data-access layers** documented above (cards,
@@ -312,7 +353,8 @@ cardTermsHistory, categories). This finishes the core data-layer portion of Phas
 
 The `calculations/` layer is growing alongside: `milestoneCycles` (cycle dates),
 `fyDates` (financial-year math), `cardBalance` (current-cycle balance &
-utilization), `milestoneProgress` (tier progress & achievement), and
+utilization), `milestoneProgress` (tier progress & achievement),
 `expectedCashback` (expected reward value + card ranking for a prospective
-purchase) are done, each with a unit test. The JSON→Sheets backend swap will touch
-only `fileStore.ts`.
+purchase), and `insights` (next-bill prediction, spend-anomaly detection,
+milestone proximity nudges) are done, each with a unit test. The JSON→Sheets
+backend swap will touch only `fileStore.ts`.
