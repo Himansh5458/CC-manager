@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "test": "tsx src/lib/data/cards.test.ts"
+    "test": "tsx scripts/run-tests.ts"
   },
   "dependencies": {
     "next": "16.2.9",

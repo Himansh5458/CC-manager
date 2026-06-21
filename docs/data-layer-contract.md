@@ -66,8 +66,44 @@ All functions go through `readDatabase`/`writeDatabase`; none touch the file pat
 | `createCard` | `(card: Omit<Card, 'id'>) => Promise<Card>` | Generates an id via `crypto.randomUUID()`, persists, returns the created card. |
 | `updateCard` | `(id: string, updates: Partial<Card>) => Promise<Card \| null>` | Applies a partial update (id is immutable), persists, returns the updated card; `null` if the id is not found. |
 
+### `src/lib/data/transactions.ts` — Transaction tab
+
+All functions go through `readDatabase`/`writeDatabase`; none touch the file path.
+
+| Function | Signature | Behaviour |
+|----------|-----------|-----------|
+| `getTransactions` | `() => Promise<Transaction[]>` | Returns all transactions. |
+| `getTransactionsByCardId` | `(cardId: string) => Promise<Transaction[]>` | Returns transactions for that card; `[]` if none. |
+| `createTransaction` | `(txn: Omit<Transaction, 'id'>) => Promise<Transaction>` | Generates an id via `crypto.randomUUID()`, persists, returns the created transaction. |
+| `updateTransaction` | `(id: string, updates: Partial<Transaction>) => Promise<Transaction \| null>` | Applies a partial update (id is immutable), persists, returns the updated transaction; `null` if the id is not found. |
+| `deleteTransaction` | `(id: string) => Promise<boolean>` | Removes the transaction, persists; returns `true` if deleted, `false` if the id is not found. |
+
+### `src/lib/data/payments.ts` — Payment tab
+
+All functions go through `readDatabase`/`writeDatabase`; none touch the file path.
+Payments are append-or-delete only — there is intentionally **no** update function
+(a payment is logged correctly or deleted and re-logged).
+
+| Function | Signature | Behaviour |
+|----------|-----------|-----------|
+| `getPayments` | `() => Promise<Payment[]>` | Returns all payments. |
+| `getPaymentsByCardId` | `(cardId: string) => Promise<Payment[]>` | Returns payments for that card; `[]` if none. |
+| `createPayment` | `(payment: Omit<Payment, 'id'>) => Promise<Payment>` | Generates an id via `crypto.randomUUID()`, persists, returns the created payment. |
+| `deletePayment` | `(id: string) => Promise<boolean>` | Removes the payment, persists; returns `true` if deleted, `false` if the id is not found. |
+
+### `src/lib/data/recurringTransactions.ts` — RecurringTransaction tab
+
+All functions go through `readDatabase`/`writeDatabase`; none touch the file path.
+
+| Function | Signature | Behaviour |
+|----------|-----------|-----------|
+| `getRecurringTransactions` | `() => Promise<RecurringTransaction[]>` | Returns all recurring transactions. |
+| `getActiveRecurringTransactions` | `() => Promise<RecurringTransaction[]>` | Returns only rows where `active === true` AND (`end_date` is null OR `end_date >= today`). ISO date strings compared lexicographically; end_date inclusive. |
+| `createRecurringTransaction` | `(rt: Omit<RecurringTransaction, 'id'>) => Promise<RecurringTransaction>` | Generates an id via `crypto.randomUUID()`, persists, returns the created row. |
+| `updateRecurringTransaction` | `(id: string, updates: Partial<RecurringTransaction>) => Promise<RecurringTransaction \| null>` | Applies a partial update (id is immutable), persists, returns the updated row; `null` if the id is not found. |
+
 ### Pending (later phases)
 
-Equivalent data-access modules for the other 12 tabs (rewardRules, transactions,
-payments, recurringTransactions, milestones, milestoneTiers, feesAndCharges,
-exclusions, monthlySnapshots, familyCapTracker, cardTermsHistory, categories).
+Equivalent data-access modules for the remaining 9 tabs (rewardRules, milestones,
+milestoneTiers, feesAndCharges, exclusions, monthlySnapshots, familyCapTracker,
+cardTermsHistory, categories).
