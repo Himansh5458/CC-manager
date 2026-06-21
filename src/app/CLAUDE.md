@@ -39,15 +39,45 @@ scrollable content column that holds each page's own `<main>`.
   across pages; keep money/date math out of it (that's `src/lib/calculations/`).
 
 ### Placeholder pages — INTENTIONAL STUBS, not forgotten work
-`/milestones` and `/assistant` exist in the sidebar
-but their feature work is a future phase. Each `page.tsx` is a **deliberate
+`/assistant` exists in the sidebar
+but its feature work is a future phase. Its `page.tsx` is a **deliberate
 throwaway stub** that renders the shared `_components/ComingSoon.tsx` ("Coming
-soon" card) so navigating to them returns 200 and looks consistent instead of
-404ing. Every stub file is marked `THROWAWAY STUB` at the top. When you build the
-real page, replace the stub body wholesale. Because they render genuinely static
-content (no DB/date reads), they intentionally **omit** `dynamic = "force-dynamic"`
-(documented inline in each) — the one sanctioned exception to frontend rule 6.
-(`/transactions` was the first stub promoted to a real page — see Forms pattern.)
+soon" card) so navigating to it returns 200 and looks consistent instead of
+404ing. The stub file is marked `THROWAWAY STUB` at the top. When you build the
+real page, replace the stub body wholesale. Because it renders genuinely static
+content (no DB/date reads), it intentionally **omits** `dynamic = "force-dynamic"`
+(documented inline) — the one sanctioned exception to frontend rule 6.
+(`/transactions` was the first stub promoted to a real page — see Forms pattern;
+`/payments` and `/milestones` followed.)
+
+## Multi-marker progress bar pattern — `MilestoneProgressBar`
+The Milestones page introduced the app's first **genuinely custom visual**: an
+"XP bar with checkpoints" — ONE horizontal track whose fill represents an amount
+against a maximum, with several threshold markers positioned along that single
+axis (not one bar per threshold). It lives at
+`src/app/milestones/_components/MilestoneProgressBar.tsx`. **Reuse / extend this
+component if another page needs the same multi-threshold-on-one-axis treatment;
+don't reinvent a second one.** Key conventions baked in:
+- **Single axis, proportional markers.** The 0%→100% width maps to ₹0 → the
+  **highest** threshold, so every lower tier lands at `threshold ÷ highest` and
+  the top tier sits exactly at the right edge. The fill is `min(progress ÷
+  highest, 100)%`. A zero/negative max is guarded (flat empty track, no divide
+  by zero).
+- **Stays a Server Component.** It has no interactivity — only positioned static
+  markup — so it is NOT `"use client"`, matching the page that renders it. (The
+  contrast with the Forms-pattern client components: those need React hooks;
+  this needs none.)
+- **Achieved vs computed vs manual.** The caller passes an **already
+  override-resolved** `achieved` (from `recomputeMilestoneProgress`, which applies
+  "manual override wins") plus a separate `isManualOverride` flag. Achieved
+  markers are green with a check glyph; a manual override additionally gets a blue
+  ring + a "Set manually" label so a hand-set status is never mistaken for a
+  computed achievement (the established override-wins principle, made visible).
+- **Edge-aware labels.** Marker labels are absolutely positioned under each
+  marker; the **first** anchors left and the **last** anchors right (others
+  centred) so the end labels never clip the track.
+- Icons are **inline SVG** (the check glyph), per the design-system "no icon
+  library" convention.
 
 ## Forms pattern (Server Component page + Client form + Server Action)
 Established by `/transactions` (the app's first data-entry screen). **All future
@@ -159,6 +189,26 @@ constrained dropdown, because payment sources vary. Card names in the table are
 looked up across **all** cards (a payment may belong to a now-inactive card),
 while the form dropdown offers **active** cards only — same split as Transactions.
 
+### `/milestones` — `src/app/milestones/page.tsx`
+Read-only progress view of every active milestone track. Server Component,
+`async`, `dynamic = "force-dynamic"`. Fetches active milestones, all tiers,
+and active cards; **groups by card** (a card section header, then
+one block per that card's milestone tracks) and **drops any card with zero active
+milestones entirely** (no empty-section noise). It reads the **STORED** computed
+fields straight off each record — the tier's `current_progress_amount` /
+`achieved` / `manual_override_achieved` and the milestone's
+`cycle_start_date`/`cycle_end_date` — and does **NOT** recompute on read
+(`recomputeMilestoneProgress` / `calculateCurrentCycle` are deliberately not
+called here). The database is the readable ledger of computed truth; recompute
+happens on write (a recompute-on-write trigger is deferred — see
+`/KNOWN_LIMITATIONS.md` and src/lib/CLAUDE.md "Deferred work"). `manual_override_achieved`
+still wins over the stored `achieved` for display (override-wins principle). Each
+track renders its cadence (`Quarterly · Calendar` etc.), stored cycle dates, and
+the multi-marker progress bar (above). **Display only — no create/edit of
+milestones or tiers** (a separate future page). Note: because the page shows
+stored values, the bar reflects the last saved recompute, which can lag the raw
+transactions until a recompute-on-write trigger exists.
+
 ### `/` — `src/app/page.tsx` (Dashboard, home screen)
 Server Component, `async`, `dynamic = "force-dynamic"`. The densest page in the app:
 six stacked sections, each rendered from the **shared `calculations/` modules** (no
@@ -195,8 +245,10 @@ system). Shared `_lib/format.ts` view helpers and `calculations/dueDate.ts`
 left-sidebar nav shell added (`layout.tsx` + `_components/Sidebar.tsx`).
 `/transactions` is now a real page (log form + history) and established the Forms
 pattern; `/payments` is now a real page too (log form + history with per-row
-delete — the first create-or-delete-only screen). The two remaining routes
-(`/milestones`, `/assistant`) are still intentional `ComingSoon` stubs.
+delete — the first create-or-delete-only screen); `/milestones` is now a real
+read-only page (live tier progress via the new multi-marker progress bar — the
+app's first custom visual). The one remaining route (`/assistant`) is still an
+intentional `ComingSoon` stub.
 
 ## Update this file
 Whenever a new conventions or component pattern is established (e.g., "all forms use X library", "all tables use Y component"), add it here so future sessions follow the same pattern.

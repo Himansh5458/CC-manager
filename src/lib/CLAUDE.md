@@ -74,5 +74,21 @@ runner; it is found automatically.** Each suite must snapshot/restore
 ## Current state
 Phase 1 (in progress): seed `data/database.json` written (2 cards + related rows). fileStore + data-access layers for **all 13 tabs** done and tested — cards, rewardRules, transactions, payments, recurringTransactions, milestones, milestoneTiers, feesAndCharges, exclusions, monthlySnapshots, familyCapTracker, cardTermsHistory, categories — plus six `calculations/` modules (milestoneCycles, fyDates, cardBalance, milestoneProgress, expectedCashback, insights), each with its unit test (`npm test` auto-discovers and runs all suites; currently 19 suites, all passing). The core data-layer portion of Phase 1 is complete.
 
+## Deferred work
+Known work intentionally not done yet — listed so a future session implements it
+on purpose rather than rediscovering the gap.
+- **Recompute-on-write trigger** (deferred 2026-06-21). A recompute-on-write
+  trigger for **milestone progress** (`recomputeMilestoneProgress`), **card
+  balance/utilization** (`recomputeCardBalance`), and the **family cap tracker**
+  needs to be added to the `createTransaction` and `createPayment` Server Actions
+  (or to the data-access functions themselves). **Currently these write raw data
+  only — downstream computed/cached fields are NOT automatically refreshed**, so
+  stored figures (tier `current_progress_amount`/`achieved`, card
+  `current_outstanding_balance`/`current_utilization_pct`, FamilyCapTracker
+  totals) lag until something explicitly recomputes and saves them. UI pages now
+  read these stored values rather than recomputing on read (database as readable
+  ledger of computed truth; also avoids per-read Google Sheets API quota cost).
+  See `/KNOWN_LIMITATIONS.md` (2026-06-21) for the full reasoning.
+
 ## Update this file
 Whenever a new module is added to src/lib/, document its responsibility and what it must never do, here.
