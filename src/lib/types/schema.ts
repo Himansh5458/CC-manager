@@ -10,6 +10,8 @@ export type TransactionSource = "manual" | "pdf";
 export type ConfidenceFlag = "high" | "low";
 export type TermConfidence = "high" | "low";
 export type ExclusionScope = "all_rewards" | "milestones_only" | "direct_rewards_only";
+// How RewardRule.multiplier_or_rate must be interpreted — see the field comment.
+export type RateType = "percentage" | "per_100_spend";
 
 export interface Card {
   id: string;
@@ -43,7 +45,20 @@ export interface RewardRule {
   card_id: string;
   category: string;
   reward_currency: RewardCurrency;
+  // How to read `multiplier_or_rate`. These are DIFFERENT reward mechanics, not two
+  // notations for one rate:
+  //   "percentage"    → the rate is a percent of spend returned directly as
+  //                     rupee-equivalent value (e.g. "5% CashPoints" = value worth
+  //                     5% of spend). The percent IS the rupee conversion, so the
+  //                     direct-reward formula does NOT apply redemption_value_per_unit.
+  //   "per_100_spend" → the rate is a COUNT of units (points/miles) earned per Rs 100
+  //                     of spend, a different currency until converted — the
+  //                     direct-reward formula multiplies by redemption_value_per_unit.
+  rate_type: RateType;
   multiplier_or_rate: number;
+  // Rupee value of one reward unit. Used by the direct-reward formula ONLY for
+  // rate_type "per_100_spend" (a percentage rule needs no unit conversion). Still
+  // present on every rule because it may be referenced elsewhere.
   redemption_value_per_unit: number;
   monthly_cap: number | null;
   cap_unit: string | null;
@@ -105,6 +120,11 @@ export interface MilestoneTier {
   tier_threshold_amount: number;
   reward_value: number;
   reward_unit: string;
+  // Rupee value of one unit of this tier's reward (reward_value is a count in
+  // reward_unit). The milestone-contribution math multiplies by this to express
+  // the tier reward in rupees. Mirror of RewardRule.redemption_value_per_unit but
+  // stored on the tier so the reward's value never has to be inferred.
+  redemption_value_per_unit: number;
   is_cumulative_payout: boolean;
   unlocks_in_cycle: "same" | "next";
   current_progress_amount: number;

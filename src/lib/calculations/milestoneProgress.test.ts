@@ -52,6 +52,7 @@ function makeTier(overrides: Partial<MilestoneTier>): MilestoneTier {
     tier_threshold_amount: 50000,
     reward_value: 500,
     reward_unit: "points",
+    redemption_value_per_unit: 1,
     is_cumulative_payout: false,
     unlocks_in_cycle: "same",
     current_progress_amount: 0,

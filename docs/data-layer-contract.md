@@ -284,6 +284,25 @@ Rules:
 - **`achieved_date` consistency** — set to `today` (UTC `YYYY-MM-DD`) the first time a tier becomes achieved; preserved (not overwritten) on later recomputes while it stays achieved; cleared to `null` whenever the tier is not achieved, so a stale date never sits beside `achieved: false`.
 - **Foreign tiers** — tiers whose `milestone_id` does not match `milestone.id` are passed through as unchanged copies and ignored for the `highest_only` computation (defensive against an over-supplying caller, mirroring `recomputeCardBalance` filtering to its card).
 
+### `src/lib/calculations/expectedCashback.ts` — expected reward value & card ranking
+
+Estimates the value a card returns for a *prospective* purchase (amount +
+category): the direct earn plus the marginal pull toward each active milestone
+tier, so the UI can answer "which card should I swipe for this?". Pure — every row
+is supplied by the caller; nothing is read from or written to the database.
+
+| Function | Signature | Behaviour |
+|----------|-----------|-----------|
+| `calculateExpectedCashback` | `(card: Card, amount: number, category: string, rewardRules: RewardRule[], milestones: Milestone[], milestoneTiers: MilestoneTier[], exclusions: Exclusion[]) => { cardId: string; directRewardValue: number; milestoneContributionValue: number; totalExpectedValue: number; breakdown: string }` | Scores one card for one purchase. See rules below. |
+| `rankCardsForPurchase` | `(cards: Card[], amount: number, category: string, allRewardRules: RewardRule[], allMilestones: Milestone[], allMilestoneTiers: MilestoneTier[], allExclusions: Exclusion[]) => ExpectedCashback[]` | Filters to `active` cards, scores each via `calculateExpectedCashback`, sorts **descending** by `totalExpectedValue`, and returns the **top 5** (fewer if fewer active cards exist). |
+
+Rules:
+- **Exclusions first** — for exclusions on this `card_id` whose `excluded_category` matches `category` (case-insensitive): `applies_to` `"all_rewards"` or `"direct_rewards_only"` zeroes `directRewardValue`; `"all_rewards"` or `"milestones_only"` zeroes `milestoneContributionValue`. The three values are independent — a card can lose direct rewards, milestone contribution, or both.
+- **Direct reward value** — finds this card's rule for `category` (case-insensitive), else falls back to its `"Other"` rule, else `0`. Branches on the rule's **`rate_type`** (these are different reward mechanics, not two notations — see `/DECISIONS.md` 2026-06-21): `"percentage"` → `amount * (multiplier_or_rate / 100)`, with `redemption_value_per_unit` **deliberately NOT applied** (the percent is already the rupee conversion); `"per_100_spend"` → `(amount / 100) * multiplier_or_rate * redemption_value_per_unit` (a unit count needing conversion). `monthly_cap` is ignored (full headroom assumed).
+- **Milestone contribution value** — over every **active** milestone on the card, for each tier that is **not** `achieved` and **not** `manual_override_achieved === true` and has `tier_threshold_amount > 0`: `contribution = (reward_value * redemption_value_per_unit / tier_threshold_amount) * amount`, summed. `redemption_value_per_unit` is read directly off the tier (a required `MilestoneTier` column), never inferred.
+- **Rounding** — `directRewardValue` and `milestoneContributionValue` are each rounded to 2 dp; `totalExpectedValue` is the sum of those rounded parts (so the parts always add up to the displayed total).
+- **`breakdown`** — a short human-readable string for the UI: a `"percentage"` rule reads `"5% points (₹25.00)"` / `"5% cashback (₹25.00)"`, a `"per_100_spend"` rule reads `"5 miles/₹100 (₹25.00)"`, each followed by `" + milestone contribution (₹20.83)"` (or `" + no milestone contribution"`); also reflects exclusions ("no direct reward (category excluded)") and missing rules ("no matching reward rule").
+
 ### Status
 
 **All 13 tabs now have complete data-access layers** documented above (cards,
@@ -293,7 +312,7 @@ cardTermsHistory, categories). This finishes the core data-layer portion of Phas
 
 The `calculations/` layer is growing alongside: `milestoneCycles` (cycle dates),
 `fyDates` (financial-year math), `cardBalance` (current-cycle balance &
-utilization), and `milestoneProgress` (tier progress & achievement) are done, each
-with a unit test. Still pending in later phases: reward/cashback math and the
-expected-cashback formula. The JSON→Sheets backend swap will touch only
-`fileStore.ts`.
+utilization), `milestoneProgress` (tier progress & achievement), and
+`expectedCashback` (expected reward value + card ranking for a prospective
+purchase) are done, each with a unit test. The JSON→Sheets backend swap will touch
+only `fileStore.ts`.

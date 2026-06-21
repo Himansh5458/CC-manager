@@ -53,6 +53,7 @@ async function main(): Promise<void> {
       tier_threshold_amount: 200000,
       reward_value: 4000,
       reward_unit: "points",
+      redemption_value_per_unit: 1,
       is_cumulative_payout: false,
       unlocks_in_cycle: "same",
       current_progress_amount: 8190,

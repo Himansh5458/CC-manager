@@ -60,6 +60,7 @@ async function main(): Promise<void> {
       card_id: "card-millennia-001",
       category: "Fuel",
       reward_currency: "cashback",
+      rate_type: "percentage",
       multiplier_or_rate: 0.05,
       redemption_value_per_unit: 1,
       monthly_cap: 200,
