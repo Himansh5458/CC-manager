@@ -39,16 +39,16 @@ scrollable content column that holds each page's own `<main>`.
   across pages; keep money/date math out of it (that's `src/lib/calculations/`).
 
 ### Placeholder pages — INTENTIONAL STUBS, not forgotten work
-`/assistant` exists in the sidebar
-but its feature work is a future phase. Its `page.tsx` is a **deliberate
-throwaway stub** that renders the shared `_components/ComingSoon.tsx` ("Coming
-soon" card) so navigating to it returns 200 and looks consistent instead of
-404ing. The stub file is marked `THROWAWAY STUB` at the top. When you build the
-real page, replace the stub body wholesale. Because it renders genuinely static
-content (no DB/date reads), it intentionally **omits** `dynamic = "force-dynamic"`
-(documented inline) — the one sanctioned exception to frontend rule 6.
-(`/transactions` was the first stub promoted to a real page — see Forms pattern;
-`/payments` and `/milestones` followed.)
+The `ComingSoon` stub pattern (a shared `_components/ComingSoon.tsx` "Coming soon"
+card so a not-yet-built route returns 200 instead of 404, marked `THROWAWAY STUB`
+at the top, replaced wholesale when the real page lands) is **no longer in use — all
+sidebar routes are now real pages.** `/transactions` was the first stub promoted (see
+Forms pattern), then `/payments`, `/milestones`, and finally `/assistant` (see
+Assistant pattern). The convention is documented here in case a future route is added
+as a stub first: a `ComingSoon` page renders genuinely static content (no DB/date
+reads), so it intentionally **omits** `dynamic = "force-dynamic"` (documented inline)
+— the one sanctioned exception to frontend rule 6. The Assistant page keeps that
+same exception for the same reason (its shell reads nothing at render).
 
 ## Multi-marker progress bar pattern — `MilestoneProgressBar`
 The Milestones page introduced the app's first **genuinely custom visual**: an
@@ -147,6 +147,44 @@ clearly instead of blending into the surface. Date inputs add `[color-scheme:dar
 so the native picker chrome matches. Reuse the `fieldClass`/`labelClass`/
 `errorClass` constants in `LogTransactionForm.tsx` as the reference.
 
+## Assistant pattern (Server-Component shell + Client chat + AI Server Action)
+Established by `/assistant` (the app's first LLM-backed screen). It reuses the Forms
+pattern's machinery (`useActionState`, initial-state-defined-in-the-client) but adds
+a few assistant-specific conventions:
+1. **Page is a static Server-Component shell.** `assistant/page.tsx` reads **no DB and
+   no date at render** — all data fetching and the Gemini calls happen inside the
+   Server Action on submit — so it is the one real page that **omits**
+   `dynamic = "force-dynamic"` (documented inline; the sanctioned frontend-rule-6
+   exception, same as the old `ComingSoon` stub). It renders only the heading +
+   `_components/AssistantChat`.
+2. **The LLM never does arithmetic.** `rankCardsForPurchase` (calculations/) does 100%
+   of the reward math; Gemini only (a) maps free text → one of our category names and
+   (b) phrases the already-computed numbers. See `src/lib/ai/gemini.ts`.
+3. **Two Server Actions in `actions.ts`** (both async, the only thing a `"use server"`
+   file may export): `getCardRecommendation(desc, amount)` is the core routine
+   (validate → `matchCategory` → `rankCardsForPurchase` → `explainRecommendation`,
+   returns `{ category, results, explanation, error }`); `getRecommendationAction`
+   is the `useActionState`-shaped wrapper the form binds to. **Validation is on the
+   server** (non-empty description, amount > 0) and bad input returns an `error` state
+   rather than throwing. No `revalidatePath` — this action computes, it doesn't mutate.
+4. **Every Gemini payload goes through `security/sanitize.ts`** (rule 3) — the action
+   builds an id→name map server-side and hands Gemini only card names + computed
+   figures, never raw rows/ids.
+5. **Client component accumulates conversation history.** `AssistantChat.tsx` is a
+   Client Component for `useActionState`. Because `useActionState` only holds the
+   LATEST result, each successful state is appended to a local `useState` history
+   array in an effect, guarded by a `lastAppended` ref (append exactly once per state
+   object — survives strict-mode effect replays). On success the form is reset; on a
+   validation error it is not, and the error renders as a banner. A **"Thinking…"**
+   bubble (animated dots + the optimistically-echoed question) shows while `pending`,
+   since the two Gemini round-trips take a few seconds — the UI must never look frozen.
+6. **UX choice — two inputs, not one.** A free-text "what are you buying?" plus a
+   separate numeric amount, deliberately NOT a single "₹500 on Swiggy" box: the amount
+   must stay an exact deterministic number, and parsing it out of free text would mean
+   brittle regex or asking Gemini to read a figure (against the no-LLM-math law).
+   Display: matched category pill → ranked cards (top highlighted) each showing
+   direct + milestone + total → the conversational explanation below.
+
 ## Shared view helpers — `src/app/_lib/`
 Presentational helpers used by more than one page live in `src/app/_lib/` (an
 underscore-prefixed **private folder**, excluded from Next.js routing). View
@@ -209,6 +247,18 @@ milestones or tiers** (a separate future page). Note: because the page shows
 stored values, the bar reflects the last saved recompute, which can lag the raw
 transactions until a recompute-on-write trigger exists.
 
+### `/assistant` — `src/app/assistant/page.tsx`
+Ask which card to use for a purchase; get a category match + ranked cards + a
+conversational explanation. **Static Server-Component shell** (the one real page
+without `force-dynamic` — no DB/date reads at render), rendering the
+`AssistantChat` Client Component. Posts to `getRecommendationAction` (`actions.ts`),
+which classifies the purchase via Gemini (`matchCategory`), ranks active cards
+**deterministically** (`rankCardsForPurchase`), and phrases the result via Gemini
+(`explainRecommendation`) — all Gemini payloads sanitized (`security/sanitize.ts`).
+The app's first LLM-backed screen and the template for the **Assistant pattern**
+(see above). Requires `GEMINI_API_KEY` in `.env.local`; degrades gracefully (category
+→ "Other", explanation → template string) when Gemini is unavailable.
+
 ### `/` — `src/app/page.tsx` (Dashboard, home screen)
 Server Component, `async`, `dynamic = "force-dynamic"`. The densest page in the app:
 six stacked sections, each rendered from the **shared `calculations/` modules** (no
@@ -247,8 +297,9 @@ left-sidebar nav shell added (`layout.tsx` + `_components/Sidebar.tsx`).
 pattern; `/payments` is now a real page too (log form + history with per-row
 delete — the first create-or-delete-only screen); `/milestones` is now a real
 read-only page (live tier progress via the new multi-marker progress bar — the
-app's first custom visual). The one remaining route (`/assistant`) is still an
-intentional `ComingSoon` stub.
+app's first custom visual). `/assistant` is now a real page too — the app's first
+LLM-backed screen (Gemini category-match + deterministic ranking + phrased
+explanation), establishing the **Assistant pattern**. No `ComingSoon` stubs remain.
 
 ## Update this file
 Whenever a new conventions or component pattern is established (e.g., "all forms use X library", "all tables use Y component"), add it here so future sessions follow the same pattern.

@@ -61,6 +61,42 @@ unit test (rule 5); the test runner auto-discovers `*.test.ts` here too.
 - `calculations/insights.ts` — forward-looking dashboard guidance, three pure functions: `predictNextBill` (Σ active recurring charges + average non-recurring spend over the available completed statement cycles; recurring instances are matched by card+category+amount and excluded from the average so they aren't double-counted; honest about limited/zero history in both the number and the `breakdown` string), `detectSpendAnomalies` (current statement-cycle spend per category vs that category's prior-cycle average; returns only categories ≥30% above a **non-zero** average, so first-time categories are never flagged), and `getMilestoneProximityNudges` (next unachieved tier of each active milestone — `manual_override_achieved` wins — returned only when `amountRemaining` is positive and ≤50% of the tier threshold, a documented "is the nudge actually reachable" cutoff). **Reuses `cardBalance.mostRecentStatementDate`** for every statement-cycle boundary rather than reimplementing it; only the *completed* cycles before the current open one are averaged, and only cycles within the card's transaction-history span count (a cycle before the earliest txn is "no data", not "₹0"). Pure: takes rows in, never reads/writes the DB. Same UTC date policy as the other calc modules.
 - `calculations/insights.test.ts` — unit test mixing committed-seed read-only cases with in-memory fixtures: `predictNextBill` on the real seed (recurring-only at 2026-06-21 since all seed txns are in the open cycle; the June spends becoming a 3-cycle average of 2730 at 2026-09-21), plus synthetic 1-cycle "limited history" honesty and a recurring-instance dedup case (₹500 recurring not double-counted); `detectSpendAnomalies` on a constructed scenario (Dining +400% flagged, Groceries +5% not, first-time Travel excluded, exact +30% boundary inclusive, seed→[] with no baseline); `getMilestoneProximityNudges` on seed (both tracks too far → []) plus synthetic close/achieved/override-true/override-false/too-far/inactive/non-positive-remaining cases. Read-only seed access, so no snapshot/restore.
 
+## security/ — outbound-payload boundary (NOT data access)
+`src/lib/security/` holds the hard boundaries from rule 3 / rule 4. Pure mappers;
+no DB I/O.
+- `security/sanitize.ts` — the **single** place any payload bound for an external AI
+  service (Gemini) is built (rule 3). `sanitizeRankedForAI(results, cardNameById)`
+  takes the raw `ExpectedCashback[]` (which carry only internal card ids) plus a
+  server-side id→name lookup and emits the **whitelisted** `AIRankedResult` shape:
+  card NAME + the three computed rupee figures, and **nothing else** — no UUID, no
+  encrypted number/last-4, no phone/email/balance, not even the internal `breakdown`
+  string. Whitelist, never blacklist, so a future sensitive schema field can't start
+  leaking by omission. Any new AI feature adds one mapper here rather than handing a
+  third party raw rows. (AES-256-GCM `encryption.ts` — rule 4 — is still to be added
+  here when card-number encryption lands.)
+
+## ai/ — external AI service wrappers (NOT data access, NOT math)
+`src/lib/ai/` is the only place that talks to an LLM. **Design law: the LLM NEVER does
+arithmetic** — `calculations/expectedCashback.ts` does 100% of the reward math
+deterministically; the model only classifies and phrases.
+- `ai/gemini.ts` — the sole module that calls the Gemini API (`@google/genai` v2.9.0,
+  the current GA SDK — the older `@google/generative-ai` is legacy/deprecated). Two
+  best-effort functions, each degrading to a SAFE deterministic fallback on ANY failure
+  (missing key, network, rate limit, malformed reply) so the feature works even with
+  Gemini down: `matchCategory(desc, availableCategories)` maps free text to one of OUR
+  exact category names (re-validated against the list; falls back to `"Other"`), and
+  `explainRecommendation(desc, category, ranked)` phrases an **already-computed**
+  ranked result in 2–4 sentences (prompt forbids the model from recomputing; falls back
+  to a template string built from the same numbers). It receives only the sanitized
+  `AIRankedResult[]` (via `security/sanitize.ts`) — never raw rows or ids. The model id
+  is a single constant `GEMINI_MODEL` (currently `"gemini-2.5-flash"`, a current
+  free-tier Flash model; kept as a one-line swap; see /DECISIONS.md). The
+  key is read lazily from `process.env.GEMINI_API_KEY` and throws a clear error only at
+  call time (not module load), so `next build` never needs the key. **No unit test**
+  (it does I/O against a live API, and contains no math to verify — the deterministic
+  math it phrases is covered by `expectedCashback.test.ts`); requires real
+  browser + API-key testing.
+
 ## How `npm test` works
 `npm test` runs `scripts/run-tests.ts`, which **auto-discovers** every `*.test.ts`
 file under `src/lib/` (recursively), runs each in its own `tsx` subprocess, and
@@ -72,7 +108,7 @@ runner; it is found automatically.** Each suite must snapshot/restore
 `data/database.json` itself (see the existing tests for the pattern).
 
 ## Current state
-Phase 1 (in progress): seed `data/database.json` written (2 cards + related rows). fileStore + data-access layers for **all 13 tabs** done and tested — cards, rewardRules, transactions, payments, recurringTransactions, milestones, milestoneTiers, feesAndCharges, exclusions, monthlySnapshots, familyCapTracker, cardTermsHistory, categories — plus six `calculations/` modules (milestoneCycles, fyDates, cardBalance, milestoneProgress, expectedCashback, insights), each with its unit test (`npm test` auto-discovers and runs all suites; currently 19 suites, all passing). The core data-layer portion of Phase 1 is complete.
+Phase 1 (in progress): seed `data/database.json` written (2 cards + related rows). fileStore + data-access layers for **all 13 tabs** done and tested — cards, rewardRules, transactions, payments, recurringTransactions, milestones, milestoneTiers, feesAndCharges, exclusions, monthlySnapshots, familyCapTracker, cardTermsHistory, categories — plus six `calculations/` modules (milestoneCycles, fyDates, cardBalance, milestoneProgress, expectedCashback, insights), each with its unit test (`npm test` auto-discovers and runs all suites; currently 20 suites, all passing). The core data-layer portion of Phase 1 is complete. Phase 4 added the AI Assistant backend: `security/sanitize.ts` (the AI-payload boundary) and `ai/gemini.ts` (Gemini wrapper) — see those sections above.
 
 ## Deferred work
 Known work intentionally not done yet — listed so a future session implements it
