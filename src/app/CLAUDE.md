@@ -11,6 +11,43 @@ Everything under `src/app/` — pages, layouts, UI components, client-side state
 5. **Every form/data-entry screen needs a review-before-save step** where extraction/computation could be wrong (statement parsing, benefit-dump extraction). This is a hard product requirement, not optional polish — see /DECISIONS.md.
 6. **Pages reading live data must opt out of static prerendering.** Any page that reads the database or depends on the current date/time must declare `export const dynamic = "force-dynamic"` so it renders fresh on every request instead of being prerendered into a stale build-time snapshot. This is the default for this app — nearly every page is a live financial dashboard ("Due in X days", utilization, balances). Only omit it when a page renders genuinely static content, and document that exception inline.
 
+## Navigation & layout shell — `layout.tsx` + `src/app/_components/`
+The root `layout.tsx` renders a persistent **app shell**: a fixed-width left
+sidebar (`_components/Sidebar.tsx`) present on every page, plus an independently
+scrollable content column that holds each page's own `<main>`.
+- **Shell mechanics.** `<body class="flex h-full overflow-hidden">` pins the shell
+  to the viewport; the sidebar stays put while only the right-hand
+  `<div class="... flex-1 overflow-y-auto">` scrolls. Pages keep rendering their
+  own `<main className="flex-1 ...">` inside that column — no page changes were
+  needed to adopt the shell.
+- **Sidebar is the one Client Component here.** `Sidebar.tsx` is `"use client"`
+  *only* because it highlights the active route via `usePathname()`. Active state
+  uses the brand-yellow accent (`bg-brand-yellow/10 text-brand-yellow`), matching
+  design-system.md; `/` matches exactly, all other links match by prefix so future
+  nested routes keep their parent highlighted. `layout.tsx` itself stays a Server
+  Component.
+- **Icons are inline SVG**, not a library — no icon dependency was added. Minimal
+  geometric outline style per design-system.md (stroke=currentColor so they inherit
+  the active/hover colour).
+- **Responsive (intentionally minimal).** Collapses to an icon-only rail (`w-16`)
+  below `md` and expands to icons + labels (`w-64`) at `md`+; labels are
+  `hidden md:inline`. This is a "doesn't break on narrow viewports" treatment, not
+  a polished mobile experience — that's a later concern.
+- **`_components/` convention.** Shared **components** live in
+  `src/app/_components/` — an underscore-prefixed private folder, excluded from
+  routing, mirroring the existing `_lib/` (helpers) convention. Use it for UI shared
+  across pages; keep money/date math out of it (that's `src/lib/calculations/`).
+
+### Placeholder pages — INTENTIONAL STUBS, not forgotten work
+`/transactions`, `/payments`, `/milestones`, and `/assistant` exist in the sidebar
+but their feature work is a future phase. Each `page.tsx` is a **deliberate
+throwaway stub** that renders the shared `_components/ComingSoon.tsx` ("Coming
+soon" card) so navigating to them returns 200 and looks consistent instead of
+404ing. Every stub file is marked `THROWAWAY STUB` at the top. When you build the
+real page, replace the stub body wholesale. Because they render genuinely static
+content (no DB/date reads), they intentionally **omit** `dynamic = "force-dynamic"`
+(documented inline in each) — the one sanctioned exception to frontend rule 6.
+
 ## Shared view helpers — `src/app/_lib/`
 Presentational helpers used by more than one page live in `src/app/_lib/` (an
 underscore-prefixed **private folder**, excluded from Next.js routing). View
@@ -64,7 +101,10 @@ Section structure and data dependencies:
 ## Current state
 Phase 3 (in progress): `/cards` list and `/` Dashboard built (dark dashboard design
 system). Shared `_lib/format.ts` view helpers and `calculations/dueDate.ts`
-(+ unit test) extracted so both pages share due-date and colour logic.
+(+ unit test) extracted so both pages share due-date and colour logic. Persistent
+left-sidebar nav shell added (`layout.tsx` + `_components/Sidebar.tsx`); the four
+not-yet-built routes (`/transactions`, `/payments`, `/milestones`, `/assistant`) are
+intentional `ComingSoon` stubs.
 
 ## Update this file
 Whenever a new conventions or component pattern is established (e.g., "all forms use X library", "all tables use Y component"), add it here so future sessions follow the same pattern.
