@@ -216,7 +216,7 @@ clicking a row/card in a list). Conventions:
    computed truth), sort tiers ascending, and let `manual_override_achieved` win over
    stored `achieved` (override-wins). Scoped to this one card's milestones.
 6. **Edit affordance is a forward link only.** A small "Edit" button links to
-   `/cards/[id]/edit` (that route does **not** exist yet — built next); the document
+   `/cards/[id]/edit` (now built — see the Card add/edit forms section); the document
    view itself is strictly read-only.
 7. **SECURITY (frontend rule 4).** `card_number_encrypted` is **never read,
    rendered, or passed to any component** — only `card_number_last4` is displayed.
@@ -226,6 +226,50 @@ clicking a row/card in a list). Conventions:
    any component boundary), so the encrypted field never enters client-rendered
    output. When extending this view, keep it a Server Component and never hand a full
    `Card` to a Client Component.
+
+## Card add/edit forms — one shared `CardForm` for two routes
+`/cards/new` (Add) and `/cards/[id]/edit` (Edit) are both the **Forms pattern**, but
+they share a **single Client Component** `cards/_components/CardForm.tsx` because the
+field set is identical — **do not fork a second card form.** Mode-specific behaviour
+is prop-driven (`mode: "create" | "edit"`, the bound `action`, optional `card`
+pre-fill, `cancelHref`). The two Server Actions live in `cards/actions.ts`
+(`createCardAction`, `updateCardAction`). Conventions specific to these forms:
+- **Server-derived fields are NEVER form inputs.** `card_number_last4` is sliced from
+  the typed number, `parent_family` is computed `card_bank + " " + card_holder`, and
+  for create `active=true` / balance / utilization / override default to `true/0/0/null`
+  — all set in the action, never collected from the user (mirrors the
+  Transactions action forcing `source`/`confidence_flag`).
+- **Edit preserves computed/cached fields by OMISSION.** `updateCardAction` builds a
+  `Partial<Card>` of only the editable fields and calls `updateCard` (a partial
+  merge), so `current_outstanding_balance` / `current_utilization_pct` /
+  `manual_override_utilization_pct` / `active` are left untouched — editing a card
+  never resets its computed balance.
+- **CARD-NUMBER PRESERVATION (the critical edit-form rule).** The edit form shows the
+  number field **empty**, with the masked existing number (`•••• •••• •••• 4521`) only
+  as a **placeholder hint** — the real/encrypted number is never sent to the client
+  (rule 4; only `card_number_last4` crosses over). A blank submission means **"keep
+  the stored number"**, NOT "wipe it": the action overwrites
+  `card_number_encrypted` / `card_number_last4` **only when the user actually typed a
+  new number** (`cardNumberDigits !== null`). Create requires the number; edit does not.
+- **PLACEHOLDER ENCRYPTION — the TODO pattern.** `card_number_encrypted` does **not**
+  yet hold an encrypted value — real AES-256-GCM encryption (`src/lib/security/
+  encryption.ts`, src/lib rule 4) is the **next phase**. For now the raw typed digits
+  are stored as-is. Each write site in `actions.ts` is marked **`TODO(encryption)`**
+  and is a deliberate **ONE-LINE swap**: wrap the digits in `encrypt(...)` there and
+  nothing else (UI, validation, last4 derivation) changes. When encryption lands,
+  grep `TODO(encryption)` in `cards/actions.ts` — there are exactly two sites
+  (create + the "number changed" branch of edit).
+- **The `id` is bound, not posted.** The edit page binds it server-side
+  (`updateCardAction.bind(null, card.id)`) so it never round-trips as a client form
+  field; the bound action matches `CardForm`'s `(state, formData) => Promise<state>`
+  prop. The action also re-checks the card still exists against the live db.
+- **Validation is all server-side** (`parseCardForm`): required identity fields +
+  network-in-enum + card number 13–19 digits (covers Amex 15 / Diners 14 / 16-digit
+  networks) + expiry month 1–12 + expiry year ≥ current UTC year + statement_date
+  1–31 + positive credit_limit + non-negative fee/deadline + email shape if provided.
+  `renewal_date`/`issuance_date`/phone/care/benefits/email are optional (stored as
+  typed or `""`). Reuses the same `fieldClass`/`labelClass`/`errorClass` input styling
+  as `LogTransactionForm`.
 
 ## Shared view helpers — `src/app/_lib/`
 Presentational helpers used by more than one page live in `src/app/_lib/` (an
@@ -248,7 +292,24 @@ Server Component, `dynamic = "force-dynamic"`. Imports `daysUntilDue` from
 `calculations/dueDate` and the colour/format helpers from `_lib/format` (no inline
 copies — they were extracted when the Dashboard needed the same logic). Each card is
 a `<Link href={/cards/${card.id}}>` (the article was wrapped in place — minimal
-change) navigating to the detail view, with a hover border/shadow affordance.
+change) navigating to the detail view, with a hover border/shadow affordance. The
+header carries a **"+ Add Card"** link to `/cards/new`.
+
+### `/cards/new` — `src/app/cards/new/page.tsx`
+Add a card. **Static Server-Component shell** (reads no db/date at render — the form
+is static and all work happens in the Server Action on submit), so it **omits**
+`dynamic = "force-dynamic"` (the sanctioned frontend-rule-6 exception, same as the
+Assistant shell; documented inline). Renders the shared `CardForm` in `"create"` mode
+wired to `createCardAction`. See the **Card add/edit forms** section above.
+
+### `/cards/[id]/edit` — `src/app/cards/[id]/edit/page.tsx`
+Edit an existing card. Server Component, `async`, `dynamic = "force-dynamic"` (reads
+the live db); **dynamic segment with `params` as a Promise** (Next.js 16 — `await
+params`), with a clean "Card not found" state for an unknown id. Maps the Card down to
+a non-sensitive `CardFormValues` (rule 4 — never the encrypted number; only last4 for
+the masked hint) and renders the shared `CardForm` in `"edit"` mode wired to
+`updateCardAction` (id bound server-side). See the **Card add/edit forms** section
+above for the card-number-preservation and placeholder-encryption details.
 
 ### `/cards/[id]` — `src/app/cards/[id]/page.tsx`
 Per-card **Card Document View** — full read-only dossier of one card (header,

@@ -51,6 +51,32 @@
       "current_utilization_pct": 22.7,
       "manual_override_utilization_pct": null,
       "active": true
+    },
+    {
+      "id": "8fa89604-8c60-4fa4-a4a3-054efb57a68e",
+      "card_holder": "Test Updated name",
+      "card_name": "etrhfgmj",
+      "card_bank": "qrwht",
+      "card_type": "Mastercard",
+      "expiry_month": 3,
+      "expiry_year": 2028,
+      "registered_phone": "6767676767",
+      "registered_email": "Himanshu@gmail.com",
+      "annual_fee": 1,
+      "statement_date": 2,
+      "payment_deadline_days": 20,
+      "customer_care_number": "234",
+      "credit_limit": 1,
+      "renewal_date": "2026-06-25",
+      "issuance_date": "2026-03-05",
+      "benefits_summary": "",
+      "parent_family": "qrwht Test Updated name",
+      "card_number_encrypted": "6767676767676767",
+      "card_number_last4": "6767",
+      "current_outstanding_balance": 0,
+      "current_utilization_pct": 0,
+      "manual_override_utilization_pct": null,
+      "active": true
     }
   ],
   "rewardRules": [

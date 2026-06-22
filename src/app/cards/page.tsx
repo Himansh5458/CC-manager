@@ -30,11 +30,19 @@ export default async function CardsPage() {
 
   return (
     <main className="flex-1 px-6 py-8 md:px-10">
-      <header className="mb-8">
-        <h1 className="text-2xl font-semibold text-text-primary-dark">Cards</h1>
-        <p className="mt-1 text-sm text-text-secondary-dark">
-          {cards.length} active {cards.length === 1 ? "card" : "cards"}
-        </p>
+      <header className="mb-8 flex items-start justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-semibold text-text-primary-dark">Cards</h1>
+          <p className="mt-1 text-sm text-text-secondary-dark">
+            {cards.length} active {cards.length === 1 ? "card" : "cards"}
+          </p>
+        </div>
+        <Link
+          href="/cards/new"
+          className="shrink-0 rounded-lg bg-brand-yellow px-4 py-2 text-sm font-semibold text-charcoal transition-opacity hover:opacity-90"
+        >
+          + Add Card
+        </Link>
       </header>
 
       {cards.length === 0 ? (
