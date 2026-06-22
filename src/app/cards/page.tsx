@@ -4,6 +4,7 @@
 // layer (getCards) on the server and renders static markup. No add/edit here —
 // that's a separate step. Add/edit and per-card detail are intentionally absent.
 
+import Link from "next/link";
 import { getCards } from "@/lib/data/cards";
 import {
   getEffectiveUtilization,
@@ -53,9 +54,10 @@ export default async function CardsPage() {
             const days = daysUntilDue(card, today);
 
             return (
-              <article
+              <Link
                 key={card.id}
-                className="rounded-2xl border border-white/5 bg-surface-dark p-6 shadow-lg shadow-black/20"
+                href={`/cards/${card.id}`}
+                className="block rounded-2xl border border-white/5 bg-surface-dark p-6 shadow-lg shadow-black/20 transition hover:border-brand-yellow/30 hover:shadow-black/40"
               >
                 {/* Card identity */}
                 <div className="flex items-start justify-between gap-3">
@@ -128,7 +130,7 @@ export default async function CardsPage() {
                     </p>
                   )}
                 </div>
-              </article>
+              </Link>
             );
           })}
         </div>

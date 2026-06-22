@@ -185,6 +185,48 @@ a few assistant-specific conventions:
    Display: matched category pill → ranked cards (top highlighted) each showing
    direct + milestone + total → the conversational explanation below.
 
+## Card Document View pattern — `cards/[id]/page.tsx`
+Established by the per-card detail route. **The template for any future
+single-record "document" view** (a full read-only dossier of one entity, reached by
+clicking a row/card in a list). Conventions:
+1. **Dynamic segment, Server Component, `force-dynamic`.** The folder is
+   `cards/[id]/`. `params` is a **Promise** (Next.js 16) — the signature is
+   `({ params }: { params: Promise<{ id: string }> })` and the first line is
+   `const { id } = await params`. Never destructure `params` synchronously. Verified
+   against `node_modules/next/dist/docs/01-app/03-api-reference/03-file-conventions/dynamic-routes.md`.
+2. **Fetch-the-root-first, then fan out.** It `await`s `getCardById(id)` alone first;
+   a `null` result short-circuits to a **clean "Card not found" card** (with a link
+   back to `/cards`) — it never throws/crashes on a bad id. Only once the card is
+   known to exist does it `Promise.all` the related rows
+   (`getRewardRulesByCardId`, `getMilestonesByCardId`, `getMilestoneTiers`,
+   `getFeesByCardId`, `getExclusionsByCardId`).
+3. **Stacked sections, each a `CARD_CLASS` panel**, each with its own **clean empty
+   state** (never error on zero rows): Header (name, bank, holder, masked number,
+   network, expiry, Active/Inactive badge, Edit link) → Reward Rates → Milestones →
+   Fees & Charges → Exclusions → Account Details.
+4. **Reward rate formatting branches on `rate_type`** (the two are different
+   mechanics, not notations — see schema.ts): `"percentage"` → `"5% points"`,
+   `"per_100_spend"` → `"5 miles per ₹100"`; `monthly_cap` shown only when non-null.
+   Fee amounts branch too: `forex_markup`/`reward_redemption` render as `%`, all
+   other fee types as `formatINR`.
+5. **Milestones reuse `MilestoneProgressBar`** (imported from
+   `@/app/milestones/_components/MilestoneProgressBar`) — **do not** build a second
+   progress bar. The tracks are assembled exactly as the Milestones page does: read
+   the **stored** tier values as-is (no live recompute — database as ledger of
+   computed truth), sort tiers ascending, and let `manual_override_achieved` win over
+   stored `achieved` (override-wins). Scoped to this one card's milestones.
+6. **Edit affordance is a forward link only.** A small "Edit" button links to
+   `/cards/[id]/edit` (that route does **not** exist yet — built next); the document
+   view itself is strictly read-only.
+7. **SECURITY (frontend rule 4).** `card_number_encrypted` is **never read,
+   rendered, or passed to any component** — only `card_number_last4` is displayed.
+   This holds structurally because the page and `MilestoneProgressBar` are both
+   **Server Components** (no `"use client"` anywhere on the route) and no child
+   receives the `Card` object at all (only primitives/`ProgressTierMarker[]` cross
+   any component boundary), so the encrypted field never enters client-rendered
+   output. When extending this view, keep it a Server Component and never hand a full
+   `Card` to a Client Component.
+
 ## Shared view helpers — `src/app/_lib/`
 Presentational helpers used by more than one page live in `src/app/_lib/` (an
 underscore-prefixed **private folder**, excluded from Next.js routing). View
@@ -204,7 +246,19 @@ concerns only — never put money/date *math* here; that belongs in
 Read-only list of active cards (credit limit, effective utilization, payment due).
 Server Component, `dynamic = "force-dynamic"`. Imports `daysUntilDue` from
 `calculations/dueDate` and the colour/format helpers from `_lib/format` (no inline
-copies — they were extracted when the Dashboard needed the same logic).
+copies — they were extracted when the Dashboard needed the same logic). Each card is
+a `<Link href={/cards/${card.id}}>` (the article was wrapped in place — minimal
+change) navigating to the detail view, with a hover border/shadow affordance.
+
+### `/cards/[id]` — `src/app/cards/[id]/page.tsx`
+Per-card **Card Document View** — full read-only dossier of one card (header,
+reward rates, milestones, fees & charges, exclusions, account details). Server
+Component, `async`, `dynamic = "force-dynamic"`; **dynamic segment with `params` as
+a Promise** (Next.js 16 — `await params`). Renders a clean "Card not found" state
+(not a crash) for an unknown id. Reuses `MilestoneProgressBar` from the Milestones
+page for its milestone section. Reads only `card_number_last4` — never the encrypted
+number. Links to a not-yet-built `/cards/[id]/edit`. The template for the **Card
+Document View pattern** (see above).
 
 ### `/transactions` — `src/app/transactions/page.tsx`
 Log a spend + review full history. Server Component, `async`,
