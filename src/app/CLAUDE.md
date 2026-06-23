@@ -140,6 +140,61 @@ control** instead of any edit affordance:
   browsers. The confirm submit button reads `useFormStatus().pending` (so it must
   be a descendant of the `<form>`) to disable itself while the delete is in flight.
 
+**Per-row delete + full-field edit modal — the Transactions variant.** Unlike
+Payments (create-or-delete only), Transactions are editable. They add **two** per-row
+affordances (both in the Actions column) on top of the create form, following
+established patterns:
+- **Delete** is the exact Payments two-click-confirm pattern: `_components/
+  DeleteTransactionButton.tsx` (Client, `useFormStatus` pending) submitting a bare
+  `(formData) => void` `deleteTransactionAction` that re-checks the id against the live
+  DB then `revalidatePath`s. It is a near-copy of `DeletePaymentButton` — reuse that
+  shape for any future per-row delete; don't invent a third.
+- **Edit is a FULL-FIELD MODAL DIALOG**, not a separate route and not an inline row
+  edit. `_components/EditTransactionModal.tsx` exports two pieces:
+  - `EditTransactionButton` — the per-row "Edit" button; owns only open/closed state.
+    It renders `<EditTransactionDialog>` **only while open**, keyed on an open-count so
+    **every open remounts the dialog** → fresh `useActionState` (no stale errors from a
+    cancelled attempt) and fresh uncontrolled `defaultValue`s pre-filled from the row.
+  - `EditTransactionDialog` — the modal itself (Client, `useActionState`). A
+    **dependency-free accessible modal**: a `fixed inset-0 z-50` backdrop + centered
+    `role="dialog" aria-modal` panel labelled by its heading. **Closeable three ways** —
+    Cancel button, ✕ button, and **backdrop click** (the panel calls
+    `stopPropagation`, so only true backdrop clicks close); **Escape** also closes and
+    background scroll is locked while mounted. It edits **all editable fields** — date,
+    merchant, amount, category, notes (the **card is not editable**, so it is neither
+    collected nor revalidated). The category `<select>` is **pre-selected to the current
+    *effective* category** (`manual_override_category ?? category`). On a successful
+    save a `useEffect` watching `state.ok` closes the modal; the row is already
+    refreshed server-side by `revalidatePath`. **INITIAL_STATE lives in the client
+    component, never exported from the `"use server"` file** (same RSC-boundary GOTCHA).
+    The full multi-field `TxnFormState` (`errors` map) is reused so each field shows an
+    inline error, exactly like the create form. This is the template for any future
+    "edit a whole record in place" affordance — prefer it over a separate edit route
+    when the record is small.
+  - The **category-cell display** (struck-through original → override in brand-yellow
+    with "(corrected)", plain category otherwise) is now a **Server Component**
+    (`CategoryCell` in `page.tsx`) — display only, since editing moved to the modal. The
+    visual is unchanged from when the old inline control owned it.
+- **The id is BOUND, not posted.** The dialog binds it server-side
+  (`updateTransactionAction.bind(null, transaction.id)`) so it never round-trips as a
+  client field — same pattern as `updateCardAction`. After binding, the shape matches
+  `useActionState`'s `(prevState, formData) => Promise<state>`. The action re-checks the
+  transaction still exists against the live DB.
+- **OVERRIDE SET/CLEAR LOGIC (the correctness-critical bit, server-side in
+  `updateTransactionAction`).** Preserved verbatim from the old category-only control —
+  the rewrite did NOT lose it. The override is written **only when the submitted
+  selection differs from the ORIGINAL `category`**: `const override =
+  selectedCategory === txn.category ? null : selectedCategory`. Selecting a *different*
+  category stores it as the override; selecting the *original* value back stores `null`
+  (an "override" equal to the original isn't an override — and this is the path that
+  **clears** a previously-set override when the user reverts). The original `category`
+  column is **left untouched on every save** (the extraction's guess is preserved; only
+  `manual_override_category` is set/cleared). The action validates date/merchant/amount/
+  category like the create form (amount positive, merchant/date/category required,
+  category in the live DB) and that the transaction still exists before writing. Mirrors
+  the "manual override wins, but a redundant override is normalized away" principle used
+  elsewhere (`getEffectiveUtilization`, `manual_override_achieved`).
+
 **Input styling on the dark theme:** form inputs use a darker fill than their
 surface card (`bg-background-dark` inputs inside a `bg-surface-dark` card) plus a
 `border-white/10` border and a `focus:ring-brand-yellow` ring, so they read
@@ -327,8 +382,17 @@ Log a spend + review full history. Server Component, `async`,
 newest-first history table; the form posts to `createTransactionAction`
 (`actions.ts`). Card names in the table are looked up across **all** cards (a txn
 may belong to a now-inactive card), while the form dropdown offers **active**
-cards only. Corrected categories render `original → override (corrected)`. The
-first screen built on the **Forms pattern** (see above).
+cards only. Each history row carries **two per-row affordances** in the Actions
+column (see the "Per-row delete + full-field edit modal" variant above): an
+`EditTransactionButton` opening a **full-field edit modal** (`EditTransactionModal.tsx`
+— date/merchant/amount/category/notes; dependency-free accessible dialog closeable via
+Cancel/✕/backdrop/Escape), and a `DeleteTransactionButton` (two-click confirm). The
+category cell itself is a read-only `CategoryCell` Server Component rendering the
+`original → override (corrected)` treatment; the modal's category select is
+pre-selected to the effective category and the override is cleared to `null` when the
+selection equals the original `category` (which is itself never overwritten). The
+actions are `updateTransactionAction` (id bound server-side) + `deleteTransactionAction`
+in `actions.ts`. The first screen built on the **Forms pattern** (see above).
 
 ### `/payments` — `src/app/payments/page.tsx`
 Log a payment + review full history. Server Component, `async`,

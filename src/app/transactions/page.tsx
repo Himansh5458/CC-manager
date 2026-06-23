@@ -13,6 +13,8 @@ import { formatINR } from "@/app/_lib/format";
 import LogTransactionForm, {
   type CardOption,
 } from "./_components/LogTransactionForm";
+import EditTransactionButton from "./_components/EditTransactionModal";
+import DeleteTransactionButton from "./_components/DeleteTransactionButton";
 
 // Live financial data + a "today" default for the form — must render fresh, never
 // a stale build-time snapshot. See src/app/CLAUDE.md frontend rule 6.
@@ -35,6 +37,10 @@ export default async function TransactionsPage() {
   const cardOptions: CardOption[] = allCards
     .filter((c) => c.active)
     .map((c) => ({ id: c.id, card_name: c.card_name, card_bank: c.card_bank }));
+
+  // Category names for the inline "Edit category" dropdown (same master list the
+  // create form offers).
+  const categoryNames = categories.map((c) => c.name);
 
   // Newest first. Dates are ISO "YYYY-MM-DD" strings, so a lexical compare is a
   // correct chronological compare.
@@ -85,6 +91,7 @@ export default async function TransactionsPage() {
                   <th className="px-4 py-3 font-medium">Category</th>
                   <th className="px-4 py-3 text-right font-medium">Amount</th>
                   <th className="px-4 py-3 font-medium">Source</th>
+                  <th className="px-4 py-3 text-right font-medium">Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -112,32 +119,37 @@ export default async function TransactionsPage() {
                       )}
                     </td>
                     <td className="px-4 py-3">
-                      {txn.manual_override_category ? (
-                        // Corrected category: show original struck-through →
-                        // override in brand-yellow so the correction is obvious.
-                        <span className="inline-flex flex-wrap items-center gap-1">
-                          <span className="text-text-secondary-dark line-through">
-                            {txn.category}
-                          </span>
-                          <span className="text-text-secondary-dark">→</span>
-                          <span className="font-medium text-brand-yellow">
-                            {txn.manual_override_category}
-                          </span>
-                          <span className="text-xs text-text-secondary-dark">
-                            (corrected)
-                          </span>
-                        </span>
-                      ) : (
-                        <span className="text-text-primary-dark">
-                          {txn.category}
-                        </span>
-                      )}
+                      {/* Display only — editing now happens in the full-field
+                          modal (Actions column). The "original → override
+                          (corrected)" treatment is unchanged. */}
+                      <CategoryCell
+                        originalCategory={txn.category}
+                        overrideCategory={txn.manual_override_category}
+                      />
                     </td>
                     <td className="whitespace-nowrap px-4 py-3 text-right font-medium tabular-nums text-text-primary-dark">
                       {formatINR(txn.amount)}
                     </td>
                     <td className="px-4 py-3">
                       <SourceBadge source={txn.source} />
+                    </td>
+                    <td className="px-4 py-3 text-right">
+                      <div className="inline-flex items-center gap-1">
+                        <EditTransactionButton
+                          transaction={{
+                            id: txn.id,
+                            date: txn.date,
+                            merchant: txn.merchant,
+                            amount: txn.amount,
+                            category: txn.category,
+                            manual_override_category:
+                              txn.manual_override_category,
+                            notes: txn.notes,
+                          }}
+                          categories={categoryNames}
+                        />
+                        <DeleteTransactionButton transactionId={txn.id} />
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -147,6 +159,36 @@ export default async function TransactionsPage() {
         )}
       </section>
     </main>
+  );
+}
+
+/**
+ * Read-only category display for a history row. When an override is set it renders
+ * the original struck-through → the override in brand-yellow with "(corrected)"
+ * (the "Shopping → Dining (corrected)" treatment); otherwise just the category.
+ * Display only — the edit affordance now lives in the full-field modal. This is a
+ * Server Component (no interactivity), unchanged from the visual the old inline
+ * control produced.
+ */
+function CategoryCell({
+  originalCategory,
+  overrideCategory,
+}: {
+  originalCategory: string;
+  overrideCategory: string | null;
+}) {
+  if (!overrideCategory) {
+    return <span className="text-text-primary-dark">{originalCategory}</span>;
+  }
+  return (
+    <span className="inline-flex flex-wrap items-center gap-1">
+      <span className="text-text-secondary-dark line-through">
+        {originalCategory}
+      </span>
+      <span className="text-text-secondary-dark">→</span>
+      <span className="font-medium text-brand-yellow">{overrideCategory}</span>
+      <span className="text-xs text-text-secondary-dark">(corrected)</span>
+    </span>
   );
 }
 

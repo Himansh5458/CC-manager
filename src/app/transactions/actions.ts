@@ -13,7 +13,12 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { createTransaction } from "@/lib/data/transactions";
+import {
+  createTransaction,
+  deleteTransaction,
+  getTransactions,
+  updateTransaction,
+} from "@/lib/data/transactions";
 import { getCards } from "@/lib/data/cards";
 import { getCategories } from "@/lib/data/categories";
 
@@ -124,6 +129,130 @@ export async function createTransactionAction(
     message: `Logged ${formatINRForMessage(amount)} at ${merchant}.`,
     errors: {},
   };
+}
+
+/**
+ * Edit an existing transaction (full form: date / merchant / amount / category /
+ * notes) from the per-row Edit modal.
+ *
+ * The `id` is BOUND server-side (`updateTransactionAction.bind(null, txn.id)` in
+ * the modal) so it never round-trips as a client form field — the same pattern as
+ * `updateCardAction`. After binding, the signature matches the
+ * `(prevState, formData) => Promise<state>` shape `useActionState` expects. The
+ * full multi-field `TxnFormState` is reused (not the old single-error shape) so
+ * each field can show an inline error, exactly like the create form.
+ *
+ * Validation mirrors the create form (server-side, never trust the client):
+ * date required + parseable, merchant required, amount finite & strictly
+ * positive, category required & a known category in the *live* DB. The card is
+ * NOT editable here, so it is neither collected nor revalidated.
+ *
+ * OVERRIDE SET/CLEAR LOGIC (the correctness-critical bit, unchanged from the old
+ * category-only control): the modal's category select starts at the current
+ * *effective* category (`manual_override_category ?? category`). On save we
+ * compare the submitted selection against the transaction's ORIGINAL `category`
+ * field (the extraction's guess, which we PRESERVE — never overwrite):
+ *   - selection === original  → `manual_override_category = null` (an "override"
+ *     equal to the original isn't an override; this is also the path that CLEARS
+ *     a previously-set override when the user reverts to the original value).
+ *   - selection !== original  → `manual_override_category = selection`.
+ * The original `category` column is left untouched on every save.
+ */
+export async function updateTransactionAction(
+  id: string,
+  _prevState: TxnFormState,
+  formData: FormData,
+): Promise<TxnFormState> {
+  const date = String(formData.get("date") ?? "").trim();
+  const merchant = String(formData.get("merchant") ?? "").trim();
+  const amountRaw = String(formData.get("amount") ?? "").trim();
+  const selectedCategory = String(formData.get("category") ?? "").trim();
+  const notes = String(formData.get("notes") ?? "").trim();
+
+  const errors: Record<string, string> = {};
+
+  // Date: required and parseable.
+  if (!date) {
+    errors.date = "Date is required.";
+  } else if (Number.isNaN(Date.parse(date))) {
+    errors.date = "Enter a valid date.";
+  }
+
+  // Merchant: required.
+  if (!merchant) {
+    errors.merchant = "Merchant is required.";
+  }
+
+  // Amount: required, finite, strictly positive.
+  const amount = Number(amountRaw);
+  if (!amountRaw) {
+    errors.amount = "Amount is required.";
+  } else if (!Number.isFinite(amount) || amount <= 0) {
+    errors.amount = "Amount must be a positive number.";
+  }
+
+  // Category: required, and must be a known category (validated against the live
+  // DB list, not trusted from the submitted dropdown).
+  const categories = await getCategories();
+  if (!selectedCategory) {
+    errors.category = "Category is required.";
+  } else if (!categories.some((c) => c.name === selectedCategory)) {
+    errors.category = "Unknown category.";
+  }
+
+  // Transaction must still exist.
+  const txn = (await getTransactions()).find((t) => t.id === id);
+  if (!txn) {
+    errors.merchant = errors.merchant ?? "Transaction not found.";
+  }
+
+  if (!txn || Object.keys(errors).length > 0) {
+    return {
+      ok: false,
+      message: "Couldn't save — please fix the highlighted fields.",
+      errors,
+    };
+  }
+
+  // OVERRIDE SET/CLEAR: compare the selection to the ORIGINAL category. Equal →
+  // clear the override (null); different → store it as the override. The original
+  // `category` extraction is preserved (never written here).
+  const override =
+    selectedCategory === txn.category ? null : selectedCategory;
+
+  await updateTransaction(id, {
+    date,
+    merchant,
+    amount,
+    notes,
+    manual_override_category: override,
+  });
+  revalidatePath("/transactions");
+
+  return {
+    ok: true,
+    message: `Updated ${merchant}.`,
+    errors: {},
+  };
+}
+
+/**
+ * Delete a transaction by id. A bare `(formData) => void` Server Action (no
+ * useActionState), matching the Payments delete: the row's client wrapper handles
+ * the two-click confirm before this runs. The id is re-checked against the live
+ * DB so a stale/duplicate submit is a harmless no-op rather than an error.
+ */
+export async function deleteTransactionAction(
+  formData: FormData,
+): Promise<void> {
+  const id = String(formData.get("id") ?? "").trim();
+  if (!id) return;
+
+  const exists = (await getTransactions()).some((t) => t.id === id);
+  if (!exists) return;
+
+  await deleteTransaction(id);
+  revalidatePath("/transactions");
 }
 
 /** Tiny rupee formatter for the success banner (the view layer's formatINR is a
