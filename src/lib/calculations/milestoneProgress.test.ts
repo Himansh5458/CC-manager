@@ -8,7 +8,12 @@
 // seed milestones) and asserts on recomputeMilestoneProgress.
 
 import { recomputeMilestoneProgress } from "./milestoneProgress";
-import type { Milestone, MilestoneTier, Transaction } from "../types/schema";
+import type {
+  Milestone,
+  MilestoneTier,
+  Transaction,
+  Exclusion,
+} from "../types/schema";
 
 let passed = 0;
 let failed = 0;
@@ -80,6 +85,19 @@ function makeTxn(overrides: Partial<Transaction>): Transaction {
   };
 }
 
+function makeExclusion(overrides: Partial<Exclusion>): Exclusion {
+  return {
+    id: "ex-test",
+    card_id: "card-test",
+    excluded_category: "Rent",
+    applies_to: "milestones_only",
+    notes: "",
+    source_dump_text: "",
+    extracted_date: "2026-06-01",
+    ...overrides,
+  };
+}
+
 const TODAY = utc("2026-06-21");
 
 /** Convenience: build a single transaction summing to `amount` inside a window. */
@@ -112,6 +130,7 @@ function main(): void {
     millMs,
     millTiers,
     [spend("card-millennia-001", "2026-05-10", 60000)],
+    [],
     TODAY,
   );
   check("highest_only sum 60k: progress recorded on all tiers (60000)",
@@ -125,6 +144,7 @@ function main(): void {
     millMs,
     millTiers,
     [spend("card-millennia-001", "2026-05-10", 120000)],
+    [],
     TODAY,
   );
   check("highest_only sum 120k: tier 1 NOT achieved (superseded)", byId(r2, "mt-mill-1").achieved === false);
@@ -136,6 +156,7 @@ function main(): void {
     millMs,
     millTiers,
     [spend("card-millennia-001", "2026-05-10", 160000)],
+    [],
     TODAY,
   );
   check("highest_only sum 160k: tier 1 NOT achieved", byId(r3, "mt-mill-1").achieved === false);
@@ -164,6 +185,7 @@ function main(): void {
     atlasMs,
     atlasTiers,
     [spend("card-atlas-001", "2026-08-01", 800000)],
+    [],
     TODAY,
   );
   check("cumulative sum 800k: tier 1 achieved", byId(ra, "mt-atlas-1").achieved === true);
@@ -182,6 +204,7 @@ function main(): void {
     millMs,
     overrideTiers,
     [spend("card-millennia-001", "2026-05-10", 120000)],
+    [],
     TODAY,
   );
   check("override true on tier 1: tier 1 achieved (override wins over computed false)", byId(ro, "mt-mill-1").achieved === true);
@@ -198,6 +221,7 @@ function main(): void {
     millMs,
     overrideFalseTiers,
     [spend("card-millennia-001", "2026-05-10", 120000)],
+    [],
     TODAY,
   );
   check("override false on tier 2: tier 2 NOT achieved despite crossing threshold", byId(rof, "mt-mill-2").achieved === false);
@@ -209,6 +233,7 @@ function main(): void {
     makeMilestone({ id: "ms-millennia-q", card_id: "card-millennia-001", tier_type: "cumulative" }),
     [makeTier({ id: "mt-d", milestone_id: "ms-millennia-q", tier_threshold_amount: 50000 })],
     [spend("card-millennia-001", "2026-05-10", 60000)],
+    [],
     TODAY,
   );
   check("achieved_date set to today (2026-06-21) on first achievement",
@@ -221,6 +246,7 @@ function main(): void {
     makeMilestone({ id: "ms-millennia-q", card_id: "card-millennia-001", tier_type: "cumulative" }),
     [alreadyAchieved],
     [spend("card-millennia-001", "2026-05-10", 70000)],
+    [],
     utc("2026-06-25"), // later "today"
   );
   check("achieved_date NOT overwritten on a later recompute while still achieved (stays 2026-06-21)",
@@ -232,6 +258,7 @@ function main(): void {
     makeMilestone({ id: "ms-millennia-q", card_id: "card-millennia-001", tier_type: "cumulative" }),
     [makeTier({ id: "mt-d", milestone_id: "ms-millennia-q", tier_threshold_amount: 50000, achieved: true, achieved_date: "2026-06-21" })],
     [spend("card-millennia-001", "2026-05-10", 10000)], // now below 50k
+    [],
     utc("2026-06-25"),
   );
   check("un-achieved tier: achieved flips to false", byId(dropBelow, "mt-d").achieved === false);
@@ -244,6 +271,7 @@ function main(): void {
     makeMilestone({ id: "ms-millennia-q", card_id: "card-millennia-001", tier_type: "cumulative" }),
     inputArr,
     [spend("card-millennia-001", "2026-05-10", 60000)],
+    [],
     TODAY,
   );
   check("does not mutate the input tier object (original.achieved still false)", original.achieved === false);
@@ -264,7 +292,7 @@ function main(): void {
     spend("card-lookback", "2026-02-15", 60000),   // previous cycle → counts
     spend("card-lookback", "2026-05-10", 999999),  // current cycle → must be ignored
   ];
-  const rl = recomputeMilestoneProgress(lookbackMs, [lookbackTier], lookbackTxns, TODAY);
+  const rl = recomputeMilestoneProgress(lookbackMs, [lookbackTier], lookbackTxns, [], TODAY);
   check("offset -1: progress comes from the PREVIOUS cycle only (60000, current-cycle spend ignored)",
     byId(rl, "mt-lb").current_progress_amount === 60000);
   check("offset -1: tier achieved from previous-cycle spend", byId(rl, "mt-lb").achieved === true);
@@ -277,7 +305,7 @@ function main(): void {
     tier_type: "cumulative",
     earning_window_offset: 0,
   });
-  const rc = recomputeMilestoneProgress(sameButCurrent, [lookbackTier], lookbackTxns, TODAY);
+  const rc = recomputeMilestoneProgress(sameButCurrent, [lookbackTier], lookbackTxns, [], TODAY);
   check("offset 0 (same data): progress comes from the CURRENT cycle (999999), confirming the window shift",
     byId(rc, "mt-lb").current_progress_amount === 999999);
 
@@ -289,11 +317,74 @@ function main(): void {
       makeTier({ id: "foreign", milestone_id: "ms-other", tier_threshold_amount: 1, achieved: false }),
     ],
     [spend("card-millennia-001", "2026-05-10", 60000)],
+    [],
     TODAY,
   );
   check("own tier updated", byId(mixed, "mine").achieved === true);
   check("foreign tier (different milestone_id) left unchanged — not achieved, progress untouched",
     byId(mixed, "foreign").achieved === false && byId(mixed, "foreign").current_progress_amount === 0);
+
+  // ── Excluded categories are dropped from the milestone spend pool ────────────
+  // BUSINESS-RULE-AUDIT fix: a category marked excluded from milestones must NOT
+  // count toward progress, while a non-excluded category in the same window still
+  // does. Cumulative milestone, window Apr 1–Jun 30 2026.
+  const exclMs = makeMilestone({
+    id: "ms-excl",
+    card_id: "card-excl",
+    tier_type: "cumulative",
+  });
+  const exclTier = makeTier({ id: "mt-excl", milestone_id: "ms-excl", tier_threshold_amount: 50000 });
+  // 40000 in an excluded "Rent" category + 30000 in a counted "Dining" category.
+  const exclTxns: Transaction[] = [
+    makeTxn({ id: "t-rent", card_id: "card-excl", date: "2026-05-10", amount: 40000, category: "Rent" }),
+    makeTxn({ id: "t-dining", card_id: "card-excl", date: "2026-05-12", amount: 30000, category: "Dining" }),
+  ];
+
+  // Baseline: no exclusions → both count, pool = 70000, tier crossed.
+  const exclNone = recomputeMilestoneProgress(exclMs, [exclTier], exclTxns, [], TODAY);
+  check("no exclusions: full pool counted (70000)", byId(exclNone, "mt-excl").current_progress_amount === 70000);
+  check("no exclusions: tier achieved at 70000 ≥ 50000", byId(exclNone, "mt-excl").achieved === true);
+
+  // milestones_only exclusion on "Rent" → 40000 dropped, pool = 30000, tier NOT crossed.
+  const milestonesOnly = [makeExclusion({ card_id: "card-excl", excluded_category: "Rent", applies_to: "milestones_only" })];
+  const exclMO = recomputeMilestoneProgress(exclMs, [exclTier], exclTxns, milestonesOnly, TODAY);
+  check("milestones_only exclusion: excluded 'Rent' dropped, only 'Dining' counts (30000)",
+    byId(exclMO, "mt-excl").current_progress_amount === 30000);
+  check("milestones_only exclusion: tier NOT achieved (30000 < 50000)", byId(exclMO, "mt-excl").achieved === false);
+
+  // all_rewards exclusion behaves identically for milestone progress (also drops Rent).
+  const allRewards = [makeExclusion({ card_id: "card-excl", excluded_category: "Rent", applies_to: "all_rewards" })];
+  const exclAll = recomputeMilestoneProgress(exclMs, [exclTier], exclTxns, allRewards, TODAY);
+  check("all_rewards exclusion: 'Rent' also dropped from milestone pool (30000)",
+    byId(exclAll, "mt-excl").current_progress_amount === 30000);
+
+  // direct_rewards_only exclusion must NOT affect milestone progress (Rent still counts).
+  const directOnly = [makeExclusion({ card_id: "card-excl", excluded_category: "Rent", applies_to: "direct_rewards_only" })];
+  const exclDirect = recomputeMilestoneProgress(exclMs, [exclTier], exclTxns, directOnly, TODAY);
+  check("direct_rewards_only exclusion: does NOT touch milestones, full pool still counts (70000)",
+    byId(exclDirect, "mt-excl").current_progress_amount === 70000);
+
+  // Case-insensitive matching: exclusion "rent" (lower) vs txn category "Rent".
+  const caseExcl = [makeExclusion({ card_id: "card-excl", excluded_category: "rent", applies_to: "milestones_only" })];
+  const exclCase = recomputeMilestoneProgress(exclMs, [exclTier], exclTxns, caseExcl, TODAY);
+  check("exclusion match is case-insensitive ('rent' excludes 'Rent', pool = 30000)",
+    byId(exclCase, "mt-excl").current_progress_amount === 30000);
+
+  // Exclusion scoped to a DIFFERENT card must be ignored for this card's pool.
+  const otherCardExcl = [makeExclusion({ card_id: "some-other-card", excluded_category: "Rent", applies_to: "milestones_only" })];
+  const exclOther = recomputeMilestoneProgress(exclMs, [exclTier], exclTxns, otherCardExcl, TODAY);
+  check("exclusion for a different card_id is ignored (full pool 70000)",
+    byId(exclOther, "mt-excl").current_progress_amount === 70000);
+
+  // Effective-category: a txn whose manual_override_category is the excluded one is
+  // dropped even though its original `category` is not excluded.
+  const overrideTxns: Transaction[] = [
+    makeTxn({ id: "t-ov", card_id: "card-excl", date: "2026-05-10", amount: 40000, category: "Shopping", manual_override_category: "Rent" }),
+    makeTxn({ id: "t-dining2", card_id: "card-excl", date: "2026-05-12", amount: 30000, category: "Dining" }),
+  ];
+  const exclOverride = recomputeMilestoneProgress(exclMs, [exclTier], overrideTxns, milestonesOnly, TODAY);
+  check("exclusion matches the EFFECTIVE category (override 'Rent' dropped despite original 'Shopping', pool = 30000)",
+    byId(exclOverride, "mt-excl").current_progress_amount === 30000);
 
   console.log(`\nResults: ${passed} passed, ${failed} failed`);
   if (failed > 0) process.exitCode = 1;

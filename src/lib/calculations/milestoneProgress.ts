@@ -19,6 +19,14 @@
 // inside the previous cycle, so calculateCurrentCycle returns the previous
 // cycle's bounds — reusing all of its anchor / leap-year / short-month handling.
 //
+// ── Excluded categories ──────────────────────────────────────────────────────
+// A category can be carved out of milestone progress by an Exclusion row for this
+// card whose applies_to is "all_rewards" or "milestones_only" (a
+// "direct_rewards_only" exclusion zeroes the direct earn but still counts toward
+// milestones, so it is NOT filtered here). Any in-window transaction whose category
+// matches such an exclusion (case-insensitive) is dropped before the spend pool is
+// summed — mirroring the milestone-exclusion branch in expectedCashback.ts.
+//
 // ── Tier achievement ─────────────────────────────────────────────────────────
 // All tiers under a milestone share ONE spend pool (the windowed sum), stored as
 // current_progress_amount on every tier. Which tiers count as achieved depends on
@@ -36,7 +44,12 @@
 // fields only. The small UTC helpers below are intentionally duplicated from
 // those modules rather than shared, matching their self-contained convention.
 
-import type { Milestone, MilestoneTier, Transaction } from "../types/schema";
+import type {
+  Milestone,
+  MilestoneTier,
+  Transaction,
+  Exclusion,
+} from "../types/schema";
 import { calculateCurrentCycle } from "./milestoneCycles";
 
 /** Format a Date as a UTC YYYY-MM-DD string. */
@@ -104,22 +117,52 @@ function earningWindow(
  * unchanged copies and ignored for the highest_only computation, so a caller that
  * over-supplies rows can't corrupt the result (mirrors recomputeCardBalance
  * filtering transactions to the card it was asked about).
+ *
+ * `exclusions` carves categories out of the spend pool: an in-window transaction
+ * whose category matches an Exclusion row for this card with applies_to
+ * "all_rewards" or "milestones_only" is NOT counted (a "direct_rewards_only"
+ * exclusion does not affect milestones). The caller supplies the rows (typically
+ * via getExclusionsByCardId); pass [] when there are none.
  */
 export function recomputeMilestoneProgress(
   milestone: Milestone,
   tiers: MilestoneTier[],
   transactions: Transaction[],
+  exclusions: Exclusion[],
   today: Date = new Date(),
 ): MilestoneTier[] {
   const { cycleStartDate, cycleEndDate } = earningWindow(milestone, today);
   const startMs = parseISODate(cycleStartDate).getTime();
   const endMs = parseISODate(cycleEndDate).getTime();
 
+  // Categories excluded from THIS card's milestone progress: a matching Exclusion
+  // row scoped to "all_rewards" or "milestones_only" (direct_rewards_only does not
+  // touch milestones). Stored lower-cased for case-insensitive matching.
+  const milestoneExcludedCategories = new Set(
+    exclusions
+      .filter(
+        (e) =>
+          e.card_id === milestone.card_id &&
+          (e.applies_to === "all_rewards" ||
+            e.applies_to === "milestones_only"),
+      )
+      .map((e) => e.excluded_category.trim().toLowerCase()),
+  );
+
   // Single shared spend pool: this card's transactions dated within the window
-  // (both boundaries inclusive).
+  // (both boundaries inclusive), minus any in an excluded category. The exclusion
+  // is matched against the transaction's EFFECTIVE category
+  // (manual_override_category ?? category) so a hand-corrected category is what
+  // counts — the same override-wins principle used elsewhere.
   const progress = transactions
     .filter((t) => {
       if (t.card_id !== milestone.card_id) return false;
+      const effectiveCategory = t.manual_override_category ?? t.category;
+      if (
+        milestoneExcludedCategories.has(effectiveCategory.trim().toLowerCase())
+      ) {
+        return false;
+      }
       const ms = parseISODate(t.date).getTime();
       return ms >= startMs && ms <= endMs;
     })

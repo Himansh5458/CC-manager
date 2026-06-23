@@ -64,3 +64,60 @@ the full token budget to the answer. Verified live post-fix through the real
 `matchCategory` export: Zomato/Swiggy → Dining, "uber ride" → Travel, gibberish → Other
 (the genuine fallback still works). Applied to `explainRecommendation` too (same latent
 risk: thinking could silently truncate the 200-token explanation).
+
+## 2026-06-23 — Family payment cap grain is PER-BANK-RELATIONSHIP, not per-individual/PAN (re-confirmed during audit review)
+The family payment cap (hardcoded ₹8,00,000 in `src/app/page.tsx`) is **deliberately
+per-bank-relationship**, keyed on `` `${card_bank} ${card_holder}` ``. The same person
+holding cards at two different banks gets **two separate ₹8L buckets** — e.g. "HDFC Rohit
+Singh" and "Axis Rohit Singh" are correctly two distinct families and are **never**
+aggregated into one per-person total.
+
+**This is intentional, not an oversight.** It matches how the actual reporting threshold
+this models works: the threshold is tied to a **bank relationship**, not to the individual
+aggregated across all their banks. So per-bank is the *correct* grain, and the across-bank
+non-aggregation is the desired behavior, not a missing feature.
+
+This was raised in the business-rule audit (`/BUSINESS_RULE_AUDIT.md` §3.2), which flagged
+the grain as undocumented and "Critical (if the cap is genuinely a per-individual
+ceiling)". It was **explicitly re-confirmed during the audit review** that the cap is
+per-bank-relationship by design. Recording it here so future sessions do **not** re-flag
+across-bank non-aggregation as a bug. The audit's §3.2 finding is hereby resolved:
+the grain is correct and now documented.
+
+**What this decision does NOT cover:** the name-variant fragmentation issue (audit §3.1) is
+a *separate, real* bug — see `/KNOWN_LIMITATIONS.md`. That concerns two cards at the **same**
+bank whose holder name differs only by spacing/punctuation incorrectly splitting into two
+families. The per-bank-vs-per-individual question is settled here; the normalization bug is
+not, and remains open.
+
+## 2026-06-23 — Milestone progress now applies category exclusions (business-rule audit fix)
+`recomputeMilestoneProgress` (`src/lib/calculations/milestoneProgress.ts`) previously summed
+**all** of a card's in-window transactions into `current_progress_amount` with **no exclusion
+filtering at all** — it never consulted the `Exclusion` tab. This was a **confirmed bug** from
+the business-rule audit (`/BUSINESS_RULE_AUDIT.md`): categories a card explicitly excludes from
+milestones (an `Exclusion` row with `applies_to: "milestones_only"` or `"all_rewards"`, e.g.
+Axis Atlas excludes Government/rent/utility spends from milestone thresholds) still counted
+toward milestone progress, silently inflating the numbers that drive a money decision.
+
+**Fix.** Added a required `exclusions: Exclusion[]` parameter (inserted before the optional
+`today`, so the new signature is `(milestone, tiers, transactions, exclusions, today?)`). A
+transaction is dropped from the spend pool when an `Exclusion` row for this `card_id` matches
+its **effective** category (`manual_override_category ?? category`, case-insensitive) AND the
+exclusion's `applies_to` is `"all_rewards"` or `"milestones_only"`. A `"direct_rewards_only"`
+exclusion is deliberately **not** applied here (it zeroes only the direct earn, not milestone
+progress) — the same scoping `expectedCashback.ts` already uses, so the two reward paths now
+treat exclusions identically.
+
+**Callers.** The only place that runs this function today is its unit test (the milestones page
+reads stored values; the recompute-on-write trigger is still deferred — see
+`/KNOWN_LIMITATIONS.md`). When that trigger is built it must fetch the card's exclusions
+(`getExclusionsByCardId`) and pass them in; the contract doc and `src/lib/CLAUDE.md` note this.
+
+**Seed data impact.** Checked explicitly against the committed `data/database.json`: **no stored
+seed transaction currently falls into an excluded category for its card within its milestone
+window**, so the stored `current_progress_amount` values (Millennia 8190, Atlas 33980) are
+**NOT** wrong today and were intentionally **left unchanged** (no silent seed mutation). The
+Millennia exclusion is `Rent` (no Rent txns exist; the lone Fuel txn is not the excluded
+category) and the Atlas exclusion is `Government` (no Government txns exist). Should an
+excluded-category transaction ever be added, a manual recompute-and-resave would be the
+follow-up.

@@ -46,6 +46,31 @@ write trigger itself is real planned work (see the "Deferred work" section in
 `src/lib/CLAUDE.md`); until it lands, treat stored figures as last-saved
 snapshots. Decision and reasoning from the 2026-06-21 Milestones-page session.
 
+## `parent_family` key is unnormalized — name variants silently fragment one person into two families (2026-06-23) — REAL BUG, not yet fixed
+`parent_family` is built by **simple string concatenation** of bank + cardholder
+name (`` `${card_bank} ${card_holder}` `` in `cards/actions.ts`) with **no
+normalization** — no trimming, no whitespace collapsing, no case/punctuation
+canonicalization. The dashboard groups families by raw string equality
+(`src/app/page.tsx`). So **within the SAME bank**, the same real person entered
+with even a slightly different name — "Rohit Singh" vs "Rohit  Singh" (double
+space), "R. Singh", trailing whitespace, different casing — produces a **different
+key** and is split into **two separate families, each measured against a full ₹8L
+cap**. This silently fragments one person's real combined payments and can hide a
+genuine cap breach (e.g. ₹5L + ₹4L = ₹9L real, shown as two comfortable sub-cap
+rows). See `/BUSINESS_RULE_AUDIT.md` §3.1.
+
+**This is a real bug to fix, NOT a deliberate simplification** (it is listed here
+because that's where the audit cross-references it). The fix is to normalize the
+key before grouping — trim, collapse internal whitespace, and canonicalize — so a
+data-entry variation cannot split one person within a bank.
+
+**Explicitly distinct from the per-bank-vs-per-individual cap-grain decision**
+(`/DECISIONS.md` 2026-06-23), which is **settled**: the cap is intentionally
+per-bank-relationship, so the same person across *different* banks getting separate
+buckets is correct *by design*. This normalization bug is the *opposite* problem —
+the same person at the *same* bank wrongly getting separate buckets — and is the
+part that is still broken.
+
 ## ~~Milestone reward redemption value is inferred, not stored~~ — RESOLVED 2026-06-21
 **No longer a limitation.** `MilestoneTier` now has a required
 `redemption_value_per_unit` column, so the milestone-contribution math reads the

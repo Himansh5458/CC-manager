@@ -341,14 +341,33 @@ concerns only — never put money/date *math* here; that belongs in
 
 ## Pages
 
+### Division of responsibility — `/cards` (identity) vs `/` (financial signals)
+A **settled rule** for where things belong, so the two pages never re-duplicate
+each other (they briefly did, and it was deliberately resolved):
+- **`/` (Dashboard) OWNS all cross-card financial signals** — due dates, utilization,
+  this-month spend, insights, predictions, and the family spend cap. Anything that is
+  *computed from transactions/payments against the current date* lives here and **only**
+  here. If a new "how is this card doing right now?" figure is needed, it goes on the
+  Dashboard (or a future dedicated analytics page), **not** on `/cards`.
+- **`/cards` OWNS card identity & management** — name, bank, network (`card_type`),
+  masked number, raw credit limit, active status, and the affordances to add / open /
+  edit a card. It shows the **raw sanctioned `credit_limit`** but deliberately **not**
+  utilization against it. It imports **no `calculations/` module** and reads **no
+  current date** — only `getCards` + `formatINR`. Keep it that way: do not re-introduce
+  `recomputeCardBalance` / `getEffectiveUtilization` / `daysUntilDue` (or their colour
+  helpers `utilizationColorClass` / `dueColorClass`) here. The page-level subtitle
+  carries a one-line pointer to the Dashboard for due-date/utilization info.
+
 ### `/cards` — `src/app/cards/page.tsx`
-Read-only list of active cards (credit limit, effective utilization, payment due).
-Server Component, `dynamic = "force-dynamic"`. Imports `daysUntilDue` from
-`calculations/dueDate` and the colour/format helpers from `_lib/format` (no inline
-copies — they were extracted when the Dashboard needed the same logic). Each card is
-a `<Link href={/cards/${card.id}}>` (the article was wrapped in place — minimal
-change) navigating to the detail view, with a hover border/shadow affordance. The
-header carries a **"+ Add Card"** link to `/cards/new`.
+Identity & management list of active cards (name, bank · network, masked number, raw
+credit limit, Active badge) — **no financial signals** (utilization / due dates were
+removed; they live solely on the Dashboard — see Division of responsibility above).
+Server Component, `dynamic = "force-dynamic"` (the list is read live — cards can be
+added/edited/deactivated). Imports only `getCards` and `formatINR` (no
+`calculations/` imports, no current-date read). Each card is a
+`<Link href={/cards/${card.id}}>` navigating to the detail view, with a hover
+border/shadow affordance. The header carries a **"+ Add Card"** link to `/cards/new`
+and a subtitle that points users to the Dashboard for due-date/utilization info.
 
 ### `/cards/new` — `src/app/cards/new/page.tsx`
 Add a card. **Static Server-Component shell** (reads no db/date at render — the form
